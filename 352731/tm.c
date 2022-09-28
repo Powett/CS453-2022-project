@@ -1,16 +1,24 @@
 /**
  * @file   tm.c
- * @author [...]
+ * @author Nathan PELUSO <nathan.peluso@epfl.ch>
  *
  * @section LICENSE
  *
- * [...]
+ * Copyright © 2022-2023 Nathan Peluso.
+ * 
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 3 of the License, or
+ * any later version. Please see https://gnu.org/licenses/gpl.html
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
  *
  * @section DESCRIPTION
  *
- * Implementation of your own transaction manager.
- * You can completely rewrite this file (and create more files) as you wish.
- * Only the interface (i.e. exported symbols and semantic) must be preserved.
+ * Transaction manager implementation, following XXXX
 **/
 
 // Requested features
@@ -26,6 +34,30 @@
 #include <tm.h>
 
 #include "macros.h"
+
+static const tx_t RO_tx  = UINTPTR_MAX - 10;
+static const tx_t RW_tx = UINTPTR_MAX - 11;
+
+/**
+ * @brief List of dynamically allocated segments.
+ */
+struct segment_node {
+    struct segment_node* prev;
+    struct segment_node* next;
+};
+typedef struct segment_node* segment_list;
+
+/**
+ * @brief Transactional Memory Region
+ */
+struct shared_region {
+    void* start;        // Start of the shared memory region (i.e., of the non-deallocable memory segment)
+    segment_list allocs; // Shared memory segments dynamically allocated via tm_alloc within transactions
+    size_t size;        // Size of the non-deallocable memory segment (in bytes)
+    size_t align;       // Size of a word in the shared memory region (in bytes)
+    //TODO 
+};
+
 
 /** Create (i.e. allocate + init) a new shared memory region, with one first non-free-able allocated segment of the requested size and alignment.
  * @param size  Size of the first shared segment of memory to allocate (in bytes), must be a positive multiple of the alignment
