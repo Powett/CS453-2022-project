@@ -38,22 +38,29 @@
 static const tx_t RO_tx  = UINTPTR_MAX - 10;
 static const tx_t RW_tx = UINTPTR_MAX - 11;
 
+typedef int lockWord;
+
+#define non_atomic_islock(lockWord) lockWord & 1
+#define non_atomic_version(lockWord) lockWord>>1
+
 /**
  * @brief List of dynamically allocated segments.
  */
-struct segment_node {
-    struct segment_node* prev;
-    struct segment_node* next;
+struct segment {
+    lockWord* locks;
+    //struct segment* prev;
+    void* raw_data;
+    struct segment* next;
 };
-typedef struct segment_node* segment_list;
+typedef struct segment* segment_list;
 
 /**
  * @brief Transactional Memory Region
  */
-struct shared_region {
+struct region {
     void* start;        // Start of the shared memory region (i.e., of the non-deallocable memory segment)
-    segment_list allocs; // Shared memory segments dynamically allocated via tm_alloc within transactions
     size_t size;        // Size of the non-deallocable memory segment (in bytes)
+    segment_list allocs; // Shared memory segments dynamically allocated via tm_alloc within transactions
     size_t align;       // Size of a word in the shared memory region (in bytes)
     //TODO 
 };
