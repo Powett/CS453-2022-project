@@ -13,4 +13,8 @@
 - [ ] tm_alloc
 - [ ] tm_dealloc
 
- 
+ Questions:
+
+ - Si read mais ensuite transac fail, il faut revert le read ?
+ - Si alloc mais ensuite transac fail, il faut free le segment ?
+ - 

@@ -18,7 +18,7 @@
  *
  * @section DESCRIPTION
  *
- * Transaction manager implementation, following XXXX
+ * Transaction manager implementation, following TLII specification
 **/
 
 // Requested features
@@ -29,40 +29,41 @@
 #endif
 
 // External headers
-
+#include <stdatomic.h>
 // Internal headers
 #include <tm.h>
 
 #include "macros.h"
+#include "lockStamp.h"
+#include "sets.h"
 
 static const tx_t RO_tx  = UINTPTR_MAX - 10;
 static const tx_t RW_tx = UINTPTR_MAX - 11;
 
-typedef int lockStamp;
-
-#define non_atomic_islock(lockStamp) lockStamp & 1
-#define non_atomic_version(lockStamp) lockStamp>>1
 
 /**
  * @brief List of dynamically allocated segments.
  */
-struct segment {
+typedef struct segment {
     size_t size;
     lockStamp* locks;
-    //struct segment* prev;
-    void* raw_data;
-    struct segment* next;
-};
-typedef struct segment* segment_list;
+    word* raw_data;
+    //segment* prev;
+    segment* next;
+} segment;
+typedef segment* segment_list;
 
 /**
  * @brief Transactional Memory Region
  */
-struct region {
-    struct segment* segment_start;// First segment (non-deallocatable)
-    segment_list allocs; // Shared memory segments dynamically allocated via tm_alloc within transactions, ordered !
-    size_t align;       // Size of a word in the shared memory region (in bytes)
-};
+typedef struct region {
+    segment* segment_start; // First segment (non-deallocatable)
+    segment_list allocs;    // Shared memory segments dynamically allocated via tm_alloc within transactions, ordered !
+    size_t align;           // Size of a word in the shared memory region (in bytes)
+    atomic_int* clock;       // Global clock used for time-stamping, perfectible ?
+    rwSet* wSet;         // rwSet to track write operations
+    rwSet* rSet;          // rwSet to track read operations
+ } region;
 
 
 /** Create (i.e. allocate + init) a new shared memory region, with one first non-free-able allocated segment of the requested size and alignment.
@@ -71,50 +72,53 @@ struct region {
  * @return Opaque shared memory region handle, 'invalid_shared' on failure
 **/
 shared_t tm_create(size_t size, size_t align) {
-    struct region* region = (struct region*) malloc(sizeof(struct region));
-    if (unlikely(!region)) {
+    region* tm_region = (region*) malloc(sizeof(region));
+    if (unlikely(!tm_region)) {
         return invalid_shared;
     }
     // We create a segment entry for the non-deallocatable region
-    struct segment* start_segment = (struct segment*) malloc(sizeof(struct segment));
+    segment* start_segment = (segment*) malloc(sizeof(segment));
     start_segment->size=size;
     // We allocate the shared memory buffer such that
     // its words are correctly aligned.
     if (unlikely(posix_memalign(&(start_segment->raw_data),align,size) !=0)){
-        free(region);
         free(start_segment);
+        free(tm_region);
         return invalid_shared;
     }
     // We allocate the shared memory buffer locks such that
     // they are correctly aligned.
     if (unlikely(posix_memalign(&(start_segment->locks),sizeof(lockStamp),size) !=0)){
-        free(region);
         free(start_segment->raw_data);
         free(start_segment);
+        free(tm_region);
         return invalid_shared;
     }
     memset(start_segment->raw_data, 0, size);
     memset(start_segment->locks, 0, size);
     start_segment->next=NULL;
-    region->segment_start=start_segment;
-    region->allocs      = start_segment;
-    region->align       = align;
-    return region;
+    tm_region->segment_start=start_segment;
+    tm_region->allocs      = start_segment;
+    tm_region->align       = align;
+    tm_region->wSet        = NULL;
+    tm_region->rSet        = NULL;
+    atomic_init(tm_region->clock, 0);
+    return tm_region;
 }
 
 /** Destroy (i.e. clean-up + free) a given shared memory region.
  * @param shared Shared memory region to destroy, with no running transaction
 **/
 void tm_destroy(shared_t unused(shared)) {
-    struct region* region = (struct region*) shared;
-    while (region->allocs) { // Free allocated segments
-        segment_list tail = region->allocs->next;
-        free(region->allocs->locks);
-        free(region->allocs->raw_data);
-        free(region->allocs);
-        region->allocs = tail;
+    region* tm_region = (region*) shared;
+    while (tm_region->allocs) { // Free allocated segments
+        segment_list tail = tm_region->allocs->next;
+        free(tm_region->allocs->locks);
+        free(tm_region->allocs->raw_data);
+        free(tm_region->allocs);
+        tm_region->allocs = tail;
     }
-    free(region);
+    free(tm_region);
 }
 
 /** [thread-safe] Return the start address of the first allocated segment in the shared memory region.
@@ -147,7 +151,18 @@ size_t tm_align(shared_t shared) {
  * @return Opaque transaction ID, 'invalid_tx' on failure
 **/
 tx_t tm_begin(shared_t unused(shared), bool unused(is_ro)) {
-    // TODO: tm_begin(shared_t)
+    region* tm_region = (region*) shared;
+    // TODO: tm_begin(shared_t
+    // if !is_ro
+    // read clock into rv
+    // reset R & W sets
+    int rv = atomic_load(tm_region->clock);
+    
+    clearSet(tm_region->wSet);
+    clearSet(tm_region->rSet);
+    tm_region->wSet = NULL;
+    tm_region->rSet = NULL;
+
     return invalid_tx;
 }
 
@@ -158,6 +173,13 @@ tx_t tm_begin(shared_t unused(shared), bool unused(is_ro)) {
 **/
 bool tm_end(shared_t unused(shared), tx_t unused(tx)) {
     // TODO: tm_end(shared_t, tx_t)
+    // ??? à vérifier
+    // take W & F locks
+    // increment clock
+    // Recheck RSet
+    // Commit writes
+    // update stamps & locks (ajoute 1 au word !)
+    // Commit frees
     return false;
 }
 
@@ -171,6 +193,12 @@ bool tm_end(shared_t unused(shared), tx_t unused(tx)) {
 **/
 bool tm_read(shared_t unused(shared), tx_t unused(tx), void const* unused(source), size_t unused(size), void* unused(target)) {
     // TODO: tm_read(shared_t, tx_t, void const*, size_t, void*)
+    // add to readset
+    // si dans le wset, applique direct
+    // si dans le freeset, ab
+    // check récup lock & version, check lock & version <= rv
+    // applique
+    // check lock & version non changé
     return false;
 }
 
@@ -184,6 +212,9 @@ bool tm_read(shared_t unused(shared), tx_t unused(tx), void const* unused(source
 **/
 bool tm_write(shared_t unused(shared), tx_t unused(tx), void const* unused(source), size_t unused(size), void* unused(target)) {
     // TODO: tm_write(shared_t, tx_t, void const*, size_t, void*)
+    // if in fSet, abort
+    // add to Wset
+
     return false;
 }
 
@@ -196,6 +227,7 @@ bool tm_write(shared_t unused(shared), tx_t unused(tx), void const* unused(sourc
 **/
 alloc_t tm_alloc(shared_t unused(shared), tx_t unused(tx), size_t unused(size), void** unused(target)) {
     // TODO: tm_alloc(shared_t, tx_t, size_t, void**)
+    // add segment directly ?
     return abort_alloc;
 }
 
@@ -207,26 +239,9 @@ alloc_t tm_alloc(shared_t unused(shared), tx_t unused(tx), size_t unused(size), 
 **/
 bool tm_free(shared_t unused(shared), tx_t unused(tx), void* unused(target)) {
     // TODO: tm_free(shared_t, tx_t, void*)
+    if ((region*) target == ((region*) shared)->segment_start){
+        return false;
+    }
+    // add to freeSet
     return false;
-}
-
-/** Getting lockStamp for given word in memory
- * @param shared Shared memory region associated with the transaction
- * @param target Address of the first byte of the previously allocated segment to deallocate
- * @return Whether the whole transaction can continue
-**/
-lockStamp find_lock(shared_t shared, void* target){
-    struct region* region=(struct region* ) shared;
-    struct segment* segment=region->allocs;
-    while (segment && segment->next->raw_data<target){
-        segment=segment->next;
-    }
-    if (!segment){r
-        return -1;
-    }
-    int index = (int) (target-segment->raw_data)/region->align;
-    if (index<0 || index >= segment->size){
-        return -1;
-    }
-    return (lockStamp)(segment->locks[index]);
 }
