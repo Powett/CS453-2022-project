@@ -34,37 +34,7 @@
 #include <tm.h>
 
 #include "macros.h"
-#include "lockStamp.h"
 #include "sets.h"
-
-static const tx_t RO_tx  = UINTPTR_MAX - 10;
-static const tx_t RW_tx = UINTPTR_MAX - 11;
-
-
-/**
- * @brief List of dynamically allocated segments.
- */
-typedef struct segment {
-    size_t size;
-    lockStamp* locks;
-    word* raw_data;
-    //segment* prev;
-    segment* next;
-} segment;
-typedef segment* segment_list;
-
-/**
- * @brief Transactional Memory Region
- */
-typedef struct region {
-    segment* segment_start; // First segment (non-deallocatable)
-    segment_list allocs;    // Shared memory segments dynamically allocated via tm_alloc within transactions, ordered !
-    size_t align;           // Size of a word in the shared memory region (in bytes)
-    atomic_int* clock;       // Global clock used for time-stamping, perfectible ?
-    rwSet* wSet;         // rwSet to track write operations
-    rwSet* rSet;          // rwSet to track read operations
- } region;
-
 
 /** Create (i.e. allocate + init) a new shared memory region, with one first non-free-able allocated segment of the requested size and alignment.
  * @param size  Size of the first shared segment of memory to allocate (in bytes), must be a positive multiple of the alignment
@@ -94,15 +64,14 @@ shared_t tm_create(size_t size, size_t align) {
         free(tm_region);
         return invalid_shared;
     }
-    memset(start_segment->raw_data, 0, size);
-    memset(start_segment->locks, 0, size);
+    memset(start_segment->raw_data, 0, size*align);
+    memset(start_segment->locks, 0, size*sizeof(lockStamp));
     start_segment->next=NULL;
     tm_region->segment_start=start_segment;
     tm_region->allocs      = start_segment;
     tm_region->align       = align;
-    tm_region->wSet        = NULL;
-    tm_region->rSet        = NULL;
-    atomic_init(tm_region->clock, 0);
+    tm_region->pending     = NULL;
+    atomic_init(&(tm_region->clock), 0);
     return tm_region;
 }
 
@@ -117,6 +86,11 @@ void tm_destroy(shared_t unused(shared)) {
         free(tm_region->allocs->raw_data);
         free(tm_region->allocs);
         tm_region->allocs = tail;
+    }
+    while (tm_region->pending){
+        transac* tail=tm_region->pending->next;
+        tr_free(tm_region->pending);
+        tm_region->pending=tail;
     }
     free(tm_region);
 }
@@ -150,20 +124,19 @@ size_t tm_align(shared_t shared) {
  * @param is_ro  Whether the transaction is read-only
  * @return Opaque transaction ID, 'invalid_tx' on failure
 **/
-tx_t tm_begin(shared_t unused(shared), bool unused(is_ro)) {
+tx_t tm_begin(shared_t shared, bool is_ro) {
     region* tm_region = (region*) shared;
-    // TODO: tm_begin(shared_t
-    // if !is_ro
-    // read clock into rv
-    // reset R & W sets
-    int rv = atomic_load(tm_region->clock);
-    
-    clearSet(tm_region->wSet);
-    clearSet(tm_region->rSet);
-    tm_region->wSet = NULL;
-    tm_region->rSet = NULL;
-
-    return invalid_tx;
+    transac* tr = (transac*)malloc(sizeof(transac));
+    if (unlikely(!tr)){
+        return invalid_tx;
+    }
+    tr->rSet=NULL;
+    tr->wSet=NULL;
+    tr->is_ro=is_ro;
+    tr->next=tm_region->pending;
+    tm_region->pending=tr;
+    int rv = atomic_load(&(tm_region->clock));
+    return (tx_t)tr;
 }
 
 /** [thread-safe] End the given transaction.
@@ -171,16 +144,31 @@ tx_t tm_begin(shared_t unused(shared), bool unused(is_ro)) {
  * @param tx     Transaction to end
  * @return Whether the whole transaction committed
 **/
-bool tm_end(shared_t unused(shared), tx_t unused(tx)) {
-    // TODO: tm_end(shared_t, tx_t)
-    // ??? à vérifier
-    // take W & F locks
-    // increment clock
-    // Recheck RSet
-    // Commit writes
-    // update stamps & locks (ajoute 1 au word !)
-    // Commit frees
-    return false;
+bool tm_end(shared_t shared, tx_t tx) {
+    region* tm_region = (region*) shared;
+    transac* tr=(transac*)tx;
+    
+    if (!tr->is_ro){
+        bool lock_free=true;
+        // Acquire locks on wSet
+        acquire_wSet_locks(tr->wSet);
+        // Sample secondary (write-version) clock
+        tr->wv=atomic_fetch_add(&(tm_region->clock), 1);
+        // Check rSet state
+        if (!rSet_check(tr->rSet, tr->wv,tr->rv)){
+            wSet_release_locks(tr->wSet,NULL, -1);
+            return false;
+        }
+        // Commit rSet
+        rSet_commit(tm_region, tr->rSet);
+        // Commit wSet
+        wSet_commit(tm_region, tr->wSet);
+        // Release locks and update clocks
+        wSet_release_locks(tr->wSet, NULL, tr->wv);
+    }
+    // Terminate the transaction
+    tr_free(tx);
+    return true;
 }
 
 /** [thread-safe] Read operation in the given transaction, source in the shared region and target in a private region.
@@ -191,15 +179,25 @@ bool tm_end(shared_t unused(shared), tx_t unused(tx)) {
  * @param target Target start address (in a private region)
  * @return Whether the whole transaction can continue
 **/
-bool tm_read(shared_t unused(shared), tx_t unused(tx), void const* unused(source), size_t unused(size), void* unused(target)) {
-    // TODO: tm_read(shared_t, tx_t, void const*, size_t, void*)
-    // add to readset
-    // si dans le wset, applique direct
-    // si dans le freeset, ab
-    // check récup lock & version, check lock & version <= rv
-    // applique
-    // check lock & version non changé
-    return false;
+bool tm_read(shared_t shared, tx_t tx, void const* source, size_t size, void* target) {
+    region* tm_region = (region*) shared;
+    transac* tr=(transac*)tx;
+    for(int i=0;i<size*tm_region->align;i+=tm_region->align){
+        wSet* found_wSet=wSet_contains((word*) (source+i), tr->wSet);
+        if (found_wSet){
+            if (found_wSet->isFreed){
+                return false;
+            }
+            memcpy((target+i),found_wSet->src, tm_region->align);
+        }else{
+            rSet* newRCell= (rSet*) malloc(sizeof(rSet*));
+            newRCell->dest=target+i;
+            newRCell->src=source+i;
+            newRCell->next=tr->rSet;
+            tr->rSet=newRCell;
+        }
+    }
+    return true;
 }
 
 /** [thread-safe] Write operation in the given transaction, source in a private region and target in the shared region.
@@ -210,12 +208,26 @@ bool tm_read(shared_t unused(shared), tx_t unused(tx), void const* unused(source
  * @param target Target start address (in the shared region)
  * @return Whether the whole transaction can continue
 **/
-bool tm_write(shared_t unused(shared), tx_t unused(tx), void const* unused(source), size_t unused(size), void* unused(target)) {
-    // TODO: tm_write(shared_t, tx_t, void const*, size_t, void*)
-    // if in fSet, abort
-    // add to Wset
-
-    return false;
+bool tm_write(shared_t shared, tx_t tx, void const* source, size_t size, void* target) {
+    region* tm_region = (region*) shared;
+    transac* tr=(transac*)tx;
+    for(int i=0;i<size*tm_region->align;i+=tm_region->align){
+        wSet* found_wSet=wSet_contains((word*) (target+i), tr->wSet);
+        if (found_wSet){
+            if (found_wSet->isFreed){
+                return false;
+            }
+            found_wSet->src=source+i;
+        }else{
+            wSet* newWCell= (wSet*) malloc(sizeof(wSet*));
+            newWCell->dest=target+i;
+            newWCell->src=source+i;
+            newWCell->isFreed=false;
+            newWCell->next=tr->wSet;
+            tr->wSet=newWCell;
+        }
+    }
+    return true;
 }
 
 /** [thread-safe] Memory allocation in the given transaction.
@@ -225,10 +237,28 @@ bool tm_write(shared_t unused(shared), tx_t unused(tx), void const* unused(sourc
  * @param target Pointer in private memory receiving the address of the first byte of the newly allocated, aligned segment
  * @return Whether the whole transaction can continue (success/nomem), or not (abort_alloc)
 **/
-alloc_t tm_alloc(shared_t unused(shared), tx_t unused(tx), size_t unused(size), void** unused(target)) {
-    // TODO: tm_alloc(shared_t, tx_t, size_t, void**)
-    // add segment directly ?
-    return abort_alloc;
+alloc_t tm_alloc(shared_t shared, tx_t tx, size_t size, void** target) {
+    region* tm_region = (region*) shared;
+    transac* tr=(transac*)tx;
+    segment* newSeg = (segment*) malloc(sizeof(segment));
+    if (unlikely(!newSeg)){
+        return nomem_alloc;
+    }
+    newSeg->size=size;
+    if (unlikely(posix_memalign(&(newSeg->raw_data),tm_region->align,size) !=0)){
+        free(newSeg);
+        return nomem_alloc;
+    }
+    if (unlikely(posix_memalign(&(newSeg->locks),sizeof(lockStamp),size) !=0)){
+        free(newSeg->raw_data);
+        free(newSeg);
+        return nomem_alloc;
+    }
+    memset(newSeg->raw_data, 0, size*tm_region->align);
+    memset(newSeg->locks, (lockStamp) tr->rv<<1, size*sizeof(lockStamp));
+    newSeg->next=tm_region->allocs;
+    tm_region->allocs=newSeg;
+    return success_alloc;
 }
 
 /** [thread-safe] Memory freeing in the given transaction.
@@ -237,11 +267,31 @@ alloc_t tm_alloc(shared_t unused(shared), tx_t unused(tx), size_t unused(size), 
  * @param target Address of the first byte of the previously allocated segment to deallocate
  * @return Whether the whole transaction can continue
 **/
-bool tm_free(shared_t unused(shared), tx_t unused(tx), void* unused(target)) {
-    // TODO: tm_free(shared_t, tx_t, void*)
-    if ((region*) target == ((region*) shared)->segment_start){
+bool tm_free(shared_t shared, tx_t tx, void* target) {
+    region* tm_region = (region*) shared;
+    transac* tr=(transac*)tx;
+    segment* seg = find_segment(shared, target);
+    if (unlikely(!seg)){
         return false;
     }
-    // add to freeSet
-    return false;
+    for(int i=0;i<seg->size*tm_region->align;i+=tm_region->align){
+        wSet* found_wSet=wSet_contains( seg->raw_data+i, tr->wSet);
+        if (found_wSet){
+            if (found_wSet->isFreed){
+                return false;
+            }
+            found_wSet->isFreed=true;
+        }else{
+            wSet* newWCell= (wSet*) malloc(sizeof(wSet*));
+            newWCell->dest=seg->raw_data+i;// pas sûr de l'aligment ?? TODO
+            newWCell->src=NULL;
+            newWCell->isFreed=true;
+            newWCell->next=tr->wSet;
+            tr->wSet=newWCell;
+        }
+    }
+    free(seg->locks);
+    free(seg->raw_data);
+    free(seg);
+    return true;
 }

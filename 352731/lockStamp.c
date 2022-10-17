@@ -26,18 +26,3 @@
 //     pthread_cond_broadcast(&(lock->cv));
 // }
 
-lockStamp find_lock(shared_t shared, void* target){
-    struct region* region=(struct region* ) shared;
-    struct segment* segment=region->allocs;
-    while (segment && segment->next->raw_data<target){
-        segment=segment->next;
-    }
-    if (!segment){
-        return -1;
-    }
-    int index = (int) (target-segment->raw_data)/region->align;
-    if (index<0 || index >= segment->size){
-        return -1;
-    }
-    return (lockStamp)(segment->locks[index]);
-}

@@ -1,7 +1,8 @@
 #pragma once
 
-#include <pthread.h>
-#include <stdbool.h>
+// #include <pthread.h>
+// #include <stdbool.h>
+#include "tm.h"
 
 // /**
 //  * @brief A timestamp that has a lock bit
@@ -45,14 +46,3 @@
 // **/
 // void lock_wake_up(struct lock_t* lock);
 
-typedef int lockStamp;
-
-#define non_atomic_islock(lockStamp) lockStamp & 1
-#define non_atomic_version(lockStamp) lockStamp>>1
-
-/** Getting lockStamp for given word in memory
- * @param shared Shared memory region associated with the transaction
- * @param target Address of the first byte of the previously allocated segment to deallocate
- * @return Whether the whole transaction can continue
-**/
-lockStamp find_lock(shared_t shared, void* target);
