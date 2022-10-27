@@ -78,7 +78,7 @@ shared_t tm_create(size_t size, size_t align) {
 /** Destroy (i.e. clean-up + free) a given shared memory region.
  * @param shared Shared memory region to destroy, with no running transaction
 **/
-void tm_destroy(shared_t unused(shared)) {
+void tm_destroy(shared_t shared) {
     region* tm_region = (region*) shared;
     while (tm_region->allocs) { // Free allocated segments
         segment_list tail = tm_region->allocs->next;
@@ -147,26 +147,39 @@ tx_t tm_begin(shared_t shared, bool is_ro) {
 bool tm_end(shared_t shared, tx_t tx) {
     region* tm_region = (region*) shared;
     transac* tr=(transac*)tx;
+    bool ok=true;
     
     if (!tr->is_ro){
-        bool lock_free=true;
+
         // Acquire locks on wSet
-        acquire_wSet_locks(tr->wSet);
+        if(!acquire_wSet_locks(tr->wSet)){
+            return false;
+        }
         // Sample secondary (write-version) clock
         tr->wv=atomic_fetch_add(&(tm_region->clock), 1);
+
         // Check rSet state
         if (!rSet_check(tr->rSet, tr->wv,tr->rv)){
             wSet_release_locks(tr->wSet,NULL, -1);
             return false;
         }
+
         // Commit rSet
-        rSet_commit(tm_region, tr->rSet);
+        if (!rSet_commit(tm_region, tr->rSet){
+            wSet_release_locks(tr->wSet,NULL, -1);
+            return false;
+        }
+
         // Commit wSet
-        wSet_commit(tm_region, tr->wSet);
+        if (!wSet_commit(tm_region, tr->wSet){
+            wSet_release_locks(tr->wSet,NULL, -1);
+            return false;
+        }
+
         // Release locks and update clocks
         wSet_release_locks(tr->wSet, NULL, tr->wv);
     }
-    // Terminate the transaction
+    // Terminate the transaction (optional, handled by the pending cleaning ?)
     tr_free(tx);
     return true;
 }
@@ -182,8 +195,8 @@ bool tm_end(shared_t shared, tx_t tx) {
 bool tm_read(shared_t shared, tx_t tx, void const* source, size_t size, void* target) {
     region* tm_region = (region*) shared;
     transac* tr=(transac*)tx;
-    for(int i=0;i<size*tm_region->align;i+=tm_region->align){
-        wSet* found_wSet=wSet_contains((word*) (source+i), tr->wSet);
+    for(int i=0;i<size;i++){
+        wSet* found_wSet=wSet_contains((word*) (source+i*tm_region->align), tr->wSet);
         if (found_wSet){
             if (found_wSet->isFreed){
                 return false;
@@ -191,8 +204,8 @@ bool tm_read(shared_t shared, tx_t tx, void const* source, size_t size, void* ta
             memcpy((target+i),found_wSet->src, tm_region->align);
         }else{
             rSet* newRCell= (rSet*) malloc(sizeof(rSet*));
-            newRCell->dest=target+i;
-            newRCell->src=source+i;
+            newRCell->dest=target+i*tm_region->align;
+            newRCell->src=source+i*tm_region->align;
             newRCell->next=tr->rSet;
             tr->rSet=newRCell;
         }
@@ -211,17 +224,17 @@ bool tm_read(shared_t shared, tx_t tx, void const* source, size_t size, void* ta
 bool tm_write(shared_t shared, tx_t tx, void const* source, size_t size, void* target) {
     region* tm_region = (region*) shared;
     transac* tr=(transac*)tx;
-    for(int i=0;i<size*tm_region->align;i+=tm_region->align){
-        wSet* found_wSet=wSet_contains((word*) (target+i), tr->wSet);
+    for(int i=0;i<size;i++){
+        wSet* found_wSet=wSet_contains((word*) (target+i*tm_region->align), tr->wSet);
         if (found_wSet){
             if (found_wSet->isFreed){
                 return false;
             }
-            found_wSet->src=source+i;
+            found_wSet->src=source+i*tm_region->align;
         }else{
             wSet* newWCell= (wSet*) malloc(sizeof(wSet*));
-            newWCell->dest=target+i;
-            newWCell->src=source+i;
+            newWCell->dest=target+i*tm_region->align;
+            newWCell->src=source+i*tm_region->align;
             newWCell->isFreed=false;
             newWCell->next=tr->wSet;
             tr->wSet=newWCell;
@@ -256,8 +269,12 @@ alloc_t tm_alloc(shared_t shared, tx_t tx, size_t size, void** target) {
     }
     memset(newSeg->raw_data, 0, size*tm_region->align);
     memset(newSeg->locks, (lockStamp) tr->rv<<1, size*sizeof(lockStamp));
-    newSeg->next=tm_region->allocs;
-    tm_region->allocs=newSeg;
+    segment* cursor=tm_region->allocs;
+    while (cursor->next && cursor->next->raw_data < newSeg->raw_data){
+        cursor=cursor->next;
+    }
+    newSeg->next=cursor->next;
+    cursor->next=newSeg;
     return success_alloc;
 }
 
@@ -274,8 +291,8 @@ bool tm_free(shared_t shared, tx_t tx, void* target) {
     if (unlikely(!seg)){
         return false;
     }
-    for(int i=0;i<seg->size*tm_region->align;i+=tm_region->align){
-        wSet* found_wSet=wSet_contains( seg->raw_data+i, tr->wSet);
+    for(int i=0;i<seg->size;i++){
+        wSet* found_wSet=wSet_contains( seg->raw_data+i*tm_region->align, tr->wSet);
         if (found_wSet){
             if (found_wSet->isFreed){
                 return false;
@@ -283,7 +300,7 @@ bool tm_free(shared_t shared, tx_t tx, void* target) {
             found_wSet->isFreed=true;
         }else{
             wSet* newWCell= (wSet*) malloc(sizeof(wSet*));
-            newWCell->dest=seg->raw_data+i;// pas sûr de l'aligment ?? TODO
+            newWCell->dest=seg->raw_data+i*tm_region->align;
             newWCell->src=NULL;
             newWCell->isFreed=true;
             newWCell->next=tr->wSet;

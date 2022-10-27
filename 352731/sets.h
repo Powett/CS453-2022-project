@@ -26,8 +26,8 @@ typedef segment* segment_list;
  * @brief Transactional Memory Region
  */
 typedef struct region {
-    segment* segment_start; // First segment (non-deallocatable)
-    segment_list allocs;    // Shared memory segments dynamically allocated via tm_alloc within transactions, ordered !
+    segment* segment_start; // First allocated segment (non-deallocatable) (may not be the first in the allocs list)
+    segment_list allocs;    // Shared memory segments dynamically allocated via tm_alloc within transactions, ordered by growing raw data (first) address
     size_t align;           // Size of a word in the shared memory region (in bytes)
     atomic_int clock;       // Global clock used for time-stamping, perfectible ?
     transac* pending;       // Currently began but not ended transactions
@@ -58,6 +58,7 @@ typedef struct wSet{
 typedef struct rSet{
     void* dest;
     word* src;
+    segment* src_seg;
     rSet* next;
 }rSet;
 
@@ -66,25 +67,20 @@ typedef int lockStamp;
 #define non_atomic_islock(lockStamp) lockStamp & 1
 #define non_atomic_version(lockStamp) lockStamp>>1
 
-/** Getting lockStamp for given word in memory
- * @param shared Shared memory region associated with the transaction
- * @param target Address of the first byte of the previously allocated segment to deallocate
- * @return Whether the whole transaction can continue
-**/
-lockStamp* find_lock(shared_t shared, void* target);
 segment* find_segment(shared_t shared, void* target);
+lockStamp* find_lock(shared_t shared, segment* segment, void* target);
+lockStamp* find_lock_from_target(shared_t shared, void* target);
 
-/** Recursively freeing a rwSet
- * @param set Set to clear (every node is freed, at the end set is an unusable memory address)
- * @return void ?
-**/
 void clearrSet(rSet* set);
 void clearwSet(wSet* set);
 
+wSet* wSet_contains(word* addr, wSet* set);
+
 bool wSet_acquire_locks(wSet* set);
-void wSet_release_locks(wSet* set, wSet* stop, int wv);
+void wSet_release_locks(wSet* start, wSet* stop, int wv_to_write);
+
 bool rSet_check(rSet* set, int wv, int rv);
-void rSet_commit(region* tm_region, rSet* set);
-void wSet_commit(region* tm_region, wSet* set);
+bool rSet_commit(region* tm_region, rSet* set);
+bool wSet_commit(region* tm_region, wSet* set);
 
 void tr_free(tx_t tx);

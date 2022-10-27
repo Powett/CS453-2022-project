@@ -1,13 +1,13 @@
 #include "sets.h"
 
-void clearSet(rSet* set){
+void clearrSet(rSet* set){
     while (set){
         rSet* tail = set->next;
         free(set);
         set=tail;
     }
 }
-void clearSet(wSet* set){
+void clearwSet(wSet* set){
     while (set){
         wSet* tail = set->next;
         free(set);
@@ -15,25 +15,10 @@ void clearSet(wSet* set){
     }
 }
 
-lockStamp* find_lock(shared_t shared, void* target){
-    struct region* region=(struct region* ) shared;
-    struct segment* segment=region->allocs;
-    while (segment && segment->next->raw_data<target){
-        segment=segment->next;
-    }
-    if (!segment){
-        return NULL;
-    }
-    int index = (int) (target-segment->raw_data)/region->align;
-    if (index<0 || index >= segment->size){
-        return NULL;
-    }
-    return (lockStamp*)&(segment->locks[index]);
-}
 segment* find_segment(shared_t shared, void* target){
     struct region* region=(struct region* ) shared;
     struct segment* segment=region->allocs;
-    while (segment && segment->next->raw_data<target){
+    while (segment && segment->raw_data+segment->size<target){
         segment=segment->next;
     }
     if (!segment){
@@ -42,27 +27,48 @@ segment* find_segment(shared_t shared, void* target){
     return segment;
 }
 
+lockStamp* find_lock(shared_t shared, segment* segment, void* target){
+    region* region=(struct region* ) shared;
+    int index = (int) (target-segment->raw_data)/region->align;
+    if (index<0 || index >= segment->size){
+        return NULL;
+    }
+    return &(segment->locks[index]);
+}
+
+lockStamp* find_lock_from_target(shared_t shared, void* target){
+    segment* sg=find_segment(shared, target);
+    if (!sg){
+        return find_lock(shared,sg,target);
+    }
+    return NULL;
+}
+
 bool wSet_acquire_locks(wSet* set){
-    wSet* init=set;
+    wSet* start=set;
     bool lock_free=true;
     while (set){
             // CAS lock -> lock_free
             if (!lock_free){
-                wSet_release_locks(init, set, -1);
+                wSet_release_locks(start, set, -1);
                 return false;
             }
             set=set->next;
         }
 }
 
-void wSet_release_locks(wSet* set, wSet* stop, int wv)
+void wSet_release_locks(wSet* start, wSet* end, int wv)
 {
-    while (set && set!=stop){
+    wSet* set=start;
+    while (set && set!=end){
         // unlock 
-        set=set->prev;
         if (wv!=-1){
             // set clock
         }
+        set=set->next;
+    }
+    if (set!=end){
+        printf("Error occured while releasing locks: unexpected NULL");
     }
 }
 
@@ -81,20 +87,25 @@ bool rSet_check(rSet* set, int wv, int rv){
     return true;
 }
 
-void rSet_commit(region* tm_region, rSet* set){
+bool rSet_commit(region* tm_region, rSet* set){
     while (set){
         memcpy(set->dest, set->src, tm_region->align);
         set=set->next;
     }
+    return true;
 }
 
-void wSet_commit(region* tm_region, wSet* set){
+bool wSet_commit(region* tm_region, wSet* set){
     while (set){
         if (!set->isFreed){
             memcpy(set->dest, set->src, tm_region->align);
             set=set->next;
+        }else{
+            printf("Impossible: In commit, trying to write after free!");
+            return false;
         }
     }
+    return true;
 }
 
 void tr_free(tx_t tx){
