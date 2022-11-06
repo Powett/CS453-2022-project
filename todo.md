@@ -1,17 +1,5 @@
 # Général
-- [ ] Helper files organisation (now: everything in sets.c & sets.h)
-- [ ] safen allocs list ?
-- [ ] Struct for tx_t
-  - [ ] Free/AllocSets ?
-  - [ ] ReadSet
-  - [ ] WriteSet
-# Fonctions
-- [ ] tm_begin
-- [ ] tm_end
-- [ ] tm_read
-- [ ] tm_write
-- [ ] tm_alloc
-- [ ] tm_free
+- Debug
 
 
 

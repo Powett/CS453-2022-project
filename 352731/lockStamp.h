@@ -1,8 +1,16 @@
 #pragma once
 
-// #include <pthread.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <pthread.h>
 // #include <stdbool.h>
 #include "tm.h"
+
+typedef struct lockStamp{
+    pthread_mutex_t mutex;
+    int versionStamp;
+    bool locked;
+}lockStamp;
 
 // /**
 //  * @brief A timestamp that has a lock bit
@@ -46,3 +54,7 @@
 // **/
 // void lock_wake_up(struct lock_t* lock);
 
+bool take_lockstamp(lockStamp* ls);
+bool release_lockstamp(lockStamp* ls);
+bool init_lockstamp(lockStamp* ls, int version);
+bool destroy_lockstamp(lockStamp* ls);

@@ -15,30 +15,33 @@ void clearwSet(wSet* set){
     }
 }
 
-segment* find_segment(shared_t shared, void* target){
-    struct region* region=(struct region* ) shared;
-    struct segment* segment=region->allocs;
-    while (segment && segment->raw_data+segment->size<target){
+segment* find_segment(shared_t shared, word* target){
+    region* tm_region=(region* ) shared;
+    segment* segment=tm_region->allocs;
+    while (segment && (segment->raw_data+(segment->size)*tm_region->align<target)){
         segment=segment->next;
     }
     if (!segment){
         return NULL;
     }
+    // printf("Found segment: %p\n");
     return segment;
 }
 
-lockStamp* find_lock(shared_t shared, segment* segment, void* target){
-    region* region=(struct region* ) shared;
-    int index = (int) (target-segment->raw_data)/region->align;
+lockStamp* find_lock(shared_t shared, segment* segment, word* target){
+    region* tm_region=(region* ) shared;
+    int index = (int) (target-segment->raw_data)/tm_region->align;
+    // printf("In find_lock: index of %p is %d", target, index);
     if (index<0 || index >= segment->size){
         return NULL;
     }
     return &(segment->locks[index]);
 }
 
-lockStamp* find_lock_from_target(shared_t shared, void* target){
+lockStamp* find_lock_from_target(shared_t shared, word* target){
+    // printf("Trying to find lock for %p\n", target);
     segment* sg=find_segment(shared, target);
-    if (!sg){
+    if (sg){
         return find_lock(shared,sg,target);
     }
     return NULL;
@@ -46,25 +49,29 @@ lockStamp* find_lock_from_target(shared_t shared, void* target){
 
 bool wSet_acquire_locks(wSet* set){
     wSet* start=set;
-    bool lock_free=true;
     while (set){
-            // CAS lock -> lock_free
-            if (!lock_free){
+            take_lockstamp(set->ls);
+            if (set->ls->locked){
+                release_lockstamp(set->ls);
                 wSet_release_locks(start, set, -1);
                 return false;
             }
+            set->ls->locked=true;
+            release_lockstamp(set->ls);
             set=set->next;
         }
+    return true;
 }
 
-void wSet_release_locks(wSet* start, wSet* end, int wv)
-{
+void wSet_release_locks(wSet* start, wSet* end, int wv){
     wSet* set=start;
     while (set && set!=end){
-        // unlock 
+        take_lockstamp(set->ls);
+        set->ls->locked=false;
         if (wv!=-1){
-            // set clock
+            set->ls->versionStamp=wv;
         }
+        release_lockstamp(set->ls);
         set=set->next;
     }
     if (set!=end){
@@ -73,14 +80,14 @@ void wSet_release_locks(wSet* start, wSet* end, int wv)
 }
 
 bool rSet_check(rSet* set, int wv, int rv){
-    bool lock_free=true;
-    int localVersion=0;
-    if (wv>rv+1){
+    if (wv!=rv+1){
         while (set){
-            // fetch lock -> lock_free
-            if (!lock_free || localVersion>rv){
+            take_lockstamp(set->ls);
+            if (set->ls->locked || set->ls->versionStamp > rv){
+                release_lockstamp(set->ls);
                 return false;
             }
+            release_lockstamp(set->ls);
             set=set->next;
         }
     }
@@ -108,8 +115,7 @@ bool wSet_commit(region* tm_region, wSet* set){
     return true;
 }
 
-void tr_free(tx_t tx){
-    transac* tr=(transac*)tx;
+void tr_free(region* tm_region, transac* tr){
     while (tr->rSet){
         rSet* tail=tr->rSet->next;
         free(tr->rSet);
@@ -126,7 +132,7 @@ void tr_free(tx_t tx){
     if(tr->prev){
         tr->prev->next=tr->next;
     }
-    free(tx);
+    free(tr);
 }
 
 wSet* wSet_contains(word* addr, wSet* set){
