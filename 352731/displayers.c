@@ -11,12 +11,12 @@ void display_region(region* tm_region){
     pthread_mutex_lock(&(tm_region->debug_lock));
     align=tm_region->align;
     printf("======= Memory region %p =======\n", tm_region);
-    printf("Alignment: %d, Clock %d\n", tm_region->align, atomic_load(&(tm_region->clock)));
+    printf("Alignment: %ld, Clock %d\n", tm_region->align, atomic_load(&(tm_region->clock)));
     printf("First segment: %p\n", tm_region->segment_start);
     printf("==== Segments\n");
     segment* seg=tm_region->allocs;
     while (seg){
-        display_segment(seg);
+        display_segment(seg, tm_region->align);
         seg=seg->next;
     }
     printf("\n");
@@ -29,15 +29,18 @@ void display_region(region* tm_region){
     printf("================================================\n");
     pthread_mutex_unlock(&(tm_region->debug_lock));
 }
-void display_segment(segment* sg){
+void display_segment(segment* sg, size_t align){
     printf ("- Segment %p: ", sg);
-    printf("Size: %d, Next:%p\n", sg->size, sg->next);
+    printf("Len: %ld, Next:%p\n", sg->len, sg->next);
     printf("Data:\n");
-    for (unsigned long int i=0;i<sg->size;i++){
-        printf("(@%p): %02x|", sg->raw_data +i*align, *(uint8_t*)(sg->raw_data +i*align));
+    for (size_t i=0;i<sg->len;i++){
+        printf("(@%p):", sg->raw_data+(i*align));
+        for (size_t j=0; j<align; j++){
+            printf("%x|", *(unsigned char *)(sg->raw_data+(i*align)+j));
+        }
     }
     printf("\nLocks:\n");
-    for (unsigned long int i=0;i<sg->size;i++){
+    for (size_t i=0;i<sg->len;i++){
         display_lock(&(sg->locks[i]));
     }
 }
@@ -76,5 +79,4 @@ void display_lock(lockStamp* ls){
 
 void init_display(region* tm_region){
     pthread_mutex_init(&(tm_region->debug_lock), NULL);
-    return;
 }

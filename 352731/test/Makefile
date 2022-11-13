@@ -1,4 +1,4 @@
 test: test.c ../*
-	cc test.c -o test -I../../include -I../ ../displayers.c.o ../lockStamp.c.o ../sets.c.o ../tm.c.o
+	cc -g -O1 test.c -o test -I../../include -I../ ../displayers.c.o ../lockStamp.c.o ../sets.c.o ../tm.c.o
 clean:
-	rm test
+	rm -rf test.c.o test

@@ -6,6 +6,7 @@
 #include <tm.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <string.h>
 
 
 #include "lockStamp.h"
@@ -46,7 +47,7 @@ typedef struct transac{
  * @brief List of dynamically allocated segments.
  */
 typedef struct segment{
-    size_t size;
+    size_t len;
     lockStamp* locks;
     word* raw_data;
     struct segment* next;

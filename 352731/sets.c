@@ -1,4 +1,5 @@
 #include "sets.h"
+#include "macros.h"
 
 void clearrSet(rSet* set){
     while (set){
@@ -18,28 +19,37 @@ void clearwSet(wSet* set){
 segment* find_segment(shared_t shared, word* target){
     region* tm_region=(region* ) shared;
     segment* segment=tm_region->allocs;
-    while (segment && (segment->raw_data+(segment->size)*tm_region->align<target)){
+    while (segment && (segment->raw_data+(segment->len)*tm_region->align<target)){
         segment=segment->next;
     }
     if (!segment){
         return NULL;
     }
-    // printf("Found segment: %p\n");
+    // if(DEBUG){
+    // 	printf("Found segment: %p\n");
+    // }
     return segment;
 }
 
 lockStamp* find_lock(shared_t shared, segment* segment, word* target){
     region* tm_region=(region* ) shared;
-    int index = (int) (target-segment->raw_data)/tm_region->align;
-    // printf("In find_lock: index of %p is %d", target, index);
-    if (index<0 || index >= segment->size){
+    if (target <segment->raw_data){
+        return NULL;
+    }
+    long unsigned int index = (long unsigned int) (target-segment->raw_data)/tm_region->align;
+    // if(DEBUG){
+    // 	printf("In find_lock: index of %p is %d", target, index);
+    // }
+    if ( index >= segment->len){
         return NULL;
     }
     return &(segment->locks[index]);
 }
 
 lockStamp* find_lock_from_target(shared_t shared, word* target){
-    // printf("Trying to find lock for %p\n", target);
+    // if(DEBUG){
+    // 	printf("Trying to find lock for %p\n", target);
+    // }
     segment* sg=find_segment(shared, target);
     if (sg){
         return find_lock(shared,sg,target);
@@ -115,7 +125,10 @@ bool wSet_commit(region* tm_region, wSet* set){
     return true;
 }
 
-void tr_free(region* tm_region, transac* tr){
+void tr_free(unused(region* tm_region), transac* tr){
+    if (unlikely(!tr)){
+        return;
+    }
     while (tr->rSet){
         rSet* tail=tr->rSet->next;
         free(tr->rSet);
