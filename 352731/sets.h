@@ -69,8 +69,7 @@ typedef struct region{
 
 
 segment* find_segment(shared_t shared, word* target);
-lockStamp* find_lock(shared_t shared, segment* segment, word* target);
-lockStamp* find_lock_from_target(shared_t shared, word* target);
+void* add_segment(shared_t shared, segment* seg);
 
 void clearrSet(rSet* set);
 void clearwSet(wSet* set);
