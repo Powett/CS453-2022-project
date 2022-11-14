@@ -30,7 +30,7 @@ int main(){
     seg0=tm_start(tm_region);
     uint64_t source=1;
     uint64_t dest=0;
-    tx_t tx, tx1;
+    tx_t tx, tx1, tx_2;
 
     tx=tm_begin(tm_region, false);
     printf("Write OK?: %d \n", tm_write(tm_region, tx,  (void*) &source, sizeof(source), start));
@@ -40,11 +40,11 @@ int main(){
     printf("Read OK?: %d\n", tm_read(tm_region, tx1, start, sizeof(dest), (void*) &dest));
     printf("Write OK?: %d \n", tm_write(tm_region, tx1,  (void*) &source, sizeof(source), start));
     printf("Alloc OK?: %d\n", tm_alloc(tm_region, tx1,16,&seg2)==success_alloc);
-    tm_end(tm_region, tx);
-    tm_end(tm_region, tx1);
-    display_region((region*)tm_region);
-
-
-    printf("Value of dest: %d\n", dest);   
+    source=5;
+    printf("Write OK?: %d\n", tm_write(tm_region, tx, (void*) &source, sizeof(source), seg2));
+    printf("Free OK?: %d\n", tm_free(tm_region,tx, seg2));
+    printf("End OK?: %d\n", tm_end(tm_region, tx));
+    printf("End OK?: %d\n", tm_end(tm_region, tx1));
+    // display_region((region*)tm_region);
     tm_destroy(tm_region);
 }

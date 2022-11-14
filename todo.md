@@ -1,5 +1,11 @@
 # Général
-- Debug
+- Optimize
+  - Clock ?
+  - Locks parasites ?
+  - cleanup à la fin
+  - 
+- Remove -g
+- 
 
 
 

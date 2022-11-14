@@ -5,7 +5,7 @@
  * @section LICENSE
  *
  * Copyright © 2022-2023 Nathan Peluso.
- * 
+ *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 3 of the License, or
@@ -112,16 +112,24 @@ void tm_destroy(shared_t shared) {
     region* tm_region = (region*) shared;
     while (tm_region->allocs) { // Free allocated segments
         segment_list tail = (tm_region->allocs)->next;
-        free((void*) tm_region->allocs->locks);
+        for (size_t i=0;i<tm_region->allocs->len;i++){
+            take_lockstamp(&(tm_region->allocs->locks[i]));
+            destroy_lockstamp(&(tm_region->allocs->locks[i]));
+        }
+        free(tm_region->allocs->locks);
         free(tm_region->allocs->raw_data);
         free(tm_region->allocs);
         tm_region->allocs = tail;
     }
-    while (tm_region->pending){
-        transac* tail=tm_region->pending->next;
-        tr_free(tm_region, tm_region->pending);
-        tm_region->pending=tail;
+    transac* tCursor=tm_region->pending;
+    transac* tail;
+    while (tCursor){
+        tail=tCursor->next;
+        tr_free(tm_region, tCursor);
+        free(tCursor);
+        tCursor=tail;
     }
+    tm_region->pending=NULL;
     free(tm_region);
 }
 
@@ -204,11 +212,8 @@ bool tm_end(shared_t shared, tx_t tx) {
     }
     region* tm_region = (region*) shared;
     transac* tr=(transac*)tx;
-    
-    //TODO enable RO optimization
-    // if (!tr->is_ro){
-    if(1){
 
+    if (!tr->is_ro){
         // Acquire locks on wSet
         if(!wSet_acquire_locks(tr->wSet)){
             if(DEBUG){
@@ -224,15 +229,6 @@ bool tm_end(shared_t shared, tx_t tx) {
             wSet_release_locks(tr->wSet,NULL, -1);
             if(DEBUG){
             	printf("Failed transaction, wrong rSet state\n");
-            }
-            return false;
-        }
-
-        // Commit rSet
-        if (!rSet_commit(tm_region, tr->rSet)){
-            wSet_release_locks(tr->wSet,NULL, -1);
-            if(DEBUG){
-            	printf("Failed transaction, cannot commit rSet\n");
             }
             return false;
         }
@@ -253,10 +249,8 @@ bool tm_end(shared_t shared, tx_t tx) {
         wSet_release_locks(tr->wSet, NULL, tr->wv);
     }
     // Terminate the transaction (optional, handled by the pending cleaning ?)
-    if (tm_region->pending==tr){
-        tm_region->pending=tr->next;
-    }
-    tr_free(tm_region, tr);
+    // tr_free(tm_region, tr);
+    // free(tr);
     if(DEBUG){
     	printf("[OK]= End TX: %03lx\n", tx);
     }
@@ -279,7 +273,7 @@ bool tm_read(shared_t shared, tx_t tx, void const* source, size_t size, void* ta
     transac* tr=(transac*)tx;
     lockStamp* ls;
     segment* seg=find_segment(shared, (word*) source);
-    
+
     if (unlikely(size%tm_region->align)){
         printf("Size not multiple of alignment");
         return false;
@@ -307,15 +301,13 @@ bool tm_read(shared_t shared, tx_t tx, void const* source, size_t size, void* ta
             }
             return false;
         }
-        //TODO enable RO optimization
-        // if (!tr->is_ro){
-        if(1){
+        if (!tr->is_ro){
             wSet* found_wSet=wSet_contains((word*) (source+i*tm_region->align), tr->wSet);
             if(DEBUG){
             	printf("Direct find in read: %d\n", found_wSet!=NULL);
             }
             if (found_wSet){
-                if (found_wSet->isFreed){
+                if (unlikely(found_wSet->isFreed)){
                     if(DEBUG){
                     	printf("Failed transaction, read after free\n");
                     }
@@ -324,21 +316,17 @@ bool tm_read(shared_t shared, tx_t tx, void const* source, size_t size, void* ta
                 memcpy((target+i*tm_region->align),found_wSet->src, tm_region->align);
             }else{
                 rSet* newRCell= (rSet*) malloc(sizeof(rSet));
-                newRCell->dest=target+i*tm_region->align;
-                newRCell->src=malloc(tm_region->align);
-                memcpy(newRCell->src, source+i*tm_region->align, tm_region->align);
                 newRCell->ls=ls;
                 newRCell->next=tr->rSet;
                 newRCell->old_version=versionStamp;
                 tr->rSet=newRCell;
+                memcpy(target+i*tm_region->align, source+i*tm_region->align, tm_region->align);
             }
-        }
-        // if (tr->is_ro){
-        if(0){
+        }else{
             memcpy((target+i*tm_region->align),source+i*tm_region->align, tm_region->align);
         }
         take_lockstamp(ls);
-        if (locked || versionStamp>tr->rv || ls->locked || ls->versionStamp>versionStamp){
+        if (versionStamp>tr->rv || ls->locked || ls->versionStamp>versionStamp){
             if(DEBUG){
                 printf("Read post-validation failed transaction, locked\n");
             }
@@ -383,9 +371,7 @@ bool tm_write(shared_t shared, tx_t tx, void const* source, size_t size, void* t
     if (DEBUG>2){
         printf("Found segment for target %p @%p, offset: %ld\n", source, seg, offset);
     }
-    // TODO enable
-    // if (unlikely(tr->is_ro)){
-    if(unlikely(0)){
+    if (unlikely(tr->is_ro)){
         printf("WO transaction trying to write !\n");
         if(DEBUG){
         	printf("Failed transaction, forbidden operation\n");
@@ -396,7 +382,7 @@ bool tm_write(shared_t shared, tx_t tx, void const* source, size_t size, void* t
     for(size_t i=0;i<len;i++){
         wSet* found_wSet=wSet_contains((word*) (target+i*tm_region->align), tr->wSet);
         if (found_wSet){
-            if (found_wSet->isFreed){
+            if (unlikely(found_wSet->isFreed)){
                 if(DEBUG){
                 	printf("Failed transaction, write after free\n");
                 }
@@ -408,7 +394,7 @@ bool tm_write(shared_t shared, tx_t tx, void const* source, size_t size, void* t
             // 	printf("Adding wCell for write at index: %d\n", i);
             // }
             wSet* newWCell= (wSet*) malloc(sizeof(wSet));
-            newWCell->dest=target+i*tm_region->align;
+            newWCell->dest=(word*)(target+i*tm_region->align);
             newWCell->src=malloc(tm_region->align);
             memcpy(newWCell->src,source+i*tm_region->align,tm_region->align);
             newWCell->ls=&(seg->locks[i+offset]);
@@ -506,14 +492,8 @@ bool tm_free(shared_t shared, tx_t tx, void* target) {
         }
         return false;
     }
-    if (unlikely(!prev)){
-        tm_region->allocs=seg->next;
-    }else{
-        prev->next=seg->next;
-    }
-
     for(size_t i=0;i<seg->len;i++){
-        wSet* found_wSet=wSet_contains( seg->raw_data+i*tm_region->align, tr->wSet);
+        wSet* found_wSet=wSet_contains((word*)(target+i*tm_region->align), tr->wSet);
         if (found_wSet){
             if (found_wSet->isFreed){
                 if(DEBUG){
@@ -524,19 +504,25 @@ bool tm_free(shared_t shared, tx_t tx, void* target) {
             found_wSet->isFreed=true;
         }else{
             wSet* newWCell= (wSet*) malloc(sizeof(wSet));
-            newWCell->dest=seg->raw_data+i;
+            newWCell->dest=(word*)(target+i*tm_region->align);
             newWCell->src=NULL;
             newWCell->isFreed=true;
             newWCell->next=tr->wSet;
             tr->wSet=newWCell;
         }
     }
-    for (size_t i=0;i<seg->len;i++){
-        destroy_lockstamp(&(seg->locks[i]));
-    }
-    free((seg->locks));
-    free((seg->raw_data));
-    free(seg);
+    // if (!prev){
+    //     tm_region->allocs=seg->next;
+    // }else{
+    //     prev->next=seg->next;
+    // }
+    // for (size_t i=0;i<seg->len;i++){
+    //     take_lockstamp(&(seg->locks[i]));
+    //     destroy_lockstamp(&(seg->locks[i]));
+    // }
+    // free((seg->locks));
+    // free((seg->raw_data));
+    // free(seg);
     if(DEBUG){
     	printf("[OK] TX: %03lx, Free: %p\n", tx, target);
     }

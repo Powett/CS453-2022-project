@@ -1,6 +1,6 @@
 #include <stdbool.h>
 
-#define DEBUG 2
+#define DEBUG 0
 
 /** Define a proposition as likely true.
  * @param prop Proposition

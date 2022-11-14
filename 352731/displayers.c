@@ -48,7 +48,7 @@ void display_segment(segment* sg, size_t align){
 void display_rSet(rSet* s){
     if (!s){return;}
     printf("- rSet cell %p: ", s);
-    printf("Dest: %p, Src: %p, next: %p", s->dest, s->src, s->next);
+    printf("Old stamp: %d, Next: %p", s->old_version, s->next);
     printf("Lock: ");
     display_lock(s->ls);
     printf("\n=\n");
@@ -57,8 +57,10 @@ void display_wSet(wSet* s){
     while (s){
         printf("- wSet cell %p: ", s);
         printf("Dest: %p, Src: %p, IsFreed: %d,  next: %p\n", s->dest, s->src, s->isFreed, s->next);
-        printf("Lock: ");
-        display_lock(s->ls);
+        if (!s->isFreed){
+            printf("Lock: ");
+            display_lock(s->ls);
+        }
         s=s->next;        
     }
     printf("\n=\n");

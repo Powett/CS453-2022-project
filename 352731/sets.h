@@ -26,8 +26,6 @@ typedef struct wSet{
 
 // Linked lists to track read operations
 typedef struct rSet{
-    void* dest;
-    word* src;
     lockStamp* ls;
     int old_version;
     struct rSet* next;
@@ -81,7 +79,6 @@ bool wSet_acquire_locks(wSet* set);
 void wSet_release_locks(wSet* start, wSet* stop, int wv_to_write);
 
 bool rSet_check(rSet* set, int wv, int rv);
-bool rSet_commit(region* tm_region, rSet* set);
 bool wSet_commit(region* tm_region, wSet* set);
 
 void tr_free(region* tm_region, transac* tx);
