@@ -81,13 +81,13 @@ void wSet_release_locks(wSet* start, wSet* end, int wv){
     wSet* set=start;
     while (set && set!=end){
         take_lockstamp(set->ls);
-        set->ls->locked=false;
         if (DEBUG>2){
             printf("Unlocked lock %p\n", set->ls);
         }
         if (wv!=-1){
             set->ls->versionStamp=wv;
         }
+        set->ls->locked=false;
         release_lockstamp(set->ls);
         set=set->next;
     }
@@ -100,9 +100,9 @@ bool rSet_check(rSet* set, int wv, int rv){
     if (wv!=rv+1){
         while (set){
             take_lockstamp(set->ls);
-            if (set->ls->locked || set->ls->versionStamp > rv){
+            if (set->ls->locked || set->ls->versionStamp > rv || set->ls->versionStamp>set->old_version){
                 if (DEBUG){
-                    printf("Failed rSet check on lock %p, locked: %d, vStamp/rv : %d/%d\n", set->ls, set->ls->locked, set->ls->versionStamp, rv);
+                    printf("Failed rSet check on lock %p, locked: %d, vStamp/oldVstamp/rv : %d/%d/%d\n", set->ls, set->ls->locked, set->ls->versionStamp, set->old_version,rv);
                 }
                 release_lockstamp(set->ls);
                 return false;
@@ -141,11 +141,13 @@ void tr_free(unused(region* tm_region), transac* tr){
     }
     while (tr->rSet){
         rSet* tail=tr->rSet->next;
+        free(tr->rSet->src);
         free(tr->rSet);
         tr->rSet=tail;
     }
     while (tr->wSet){
         wSet* tail=tr->wSet->next;
+        free(tr->wSet->src);
         free(tr->wSet);
         tr->wSet=tail;
     }

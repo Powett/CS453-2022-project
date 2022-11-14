@@ -43,6 +43,7 @@ void display_segment(segment* sg, size_t align){
     for (size_t i=0;i<sg->len;i++){
         display_lock(&(sg->locks[i]));
     }
+    printf("\n");
 }
 void display_rSet(rSet* s){
     if (!s){return;}

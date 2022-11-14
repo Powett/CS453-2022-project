@@ -29,6 +29,7 @@ typedef struct rSet{
     void* dest;
     word* src;
     lockStamp* ls;
+    int old_version;
     struct rSet* next;
 } rSet;
 
