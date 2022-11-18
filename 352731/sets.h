@@ -38,8 +38,6 @@ typedef struct transac{
     wSet* wSet;         // wSet to track write operations
     rSet* rSet;         // rSet to track read operations
     bool is_ro;
-    struct transac* prev;       
-    struct transac* next;
 } transac;
 
 /**
@@ -61,7 +59,6 @@ typedef struct region{
     segment_list allocs;    // Shared memory segments dynamically allocated via tm_alloc within transactions, ordered by growing raw data (first) address
     size_t align;           // Size of a word in the shared memory region (in bytes)
     atomic_int clock;       // Global clock used for time-stamping, perfectible ?
-    transac* pending;       // Currently began but not ended transactions
 
     pthread_mutex_t debug_lock; // debug coarse lock
  } region;
@@ -76,9 +73,9 @@ void clear_wSet(wSet* set);
 wSet* wSet_contains(word* addr, wSet* set);
 
 bool wSet_acquire_locks(wSet* set);
-void wSet_release_locks_clear(wSet* start, wSet* stop, int wv_to_write);
+void wSet_release_locks(wSet* start, wSet* stop, int wv_to_write);
 
-rSet* rSet_check_clear(rSet* set, int wv, int rv);
-bool wSet_commit_release_clear(region* tm_region, wSet* set, int wv);
+bool rSet_check(rSet* set, int wv, int rv);
+bool wSet_commit_release(region* tm_region, wSet* set, int wv);
 
 void tr_free(region* tm_region, transac* tx);

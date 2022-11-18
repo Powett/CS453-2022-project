@@ -8,6 +8,15 @@
 - 
 
 
+Usage des lockstamp:
+- acquire_locks: 1 check si locked puis lock si pas lock => c&s ?
+- release_locks: (force) unlock & (force) set version => set version (simple ? atomic ?) puis c&s (hypothèse: déjà lock de toute façon)
+- rset_check: besoin de lock & version => c&s sur le lock, read version ?
+- tm_read: pre : sample le lock & vesrion => c&s sur le lock, read version
+- post: resample lock & version
+- 
+- 
+
 
 tm_create:
 - zero first seg

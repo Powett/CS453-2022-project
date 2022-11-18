@@ -20,13 +20,6 @@ void display_region(region* tm_region){
         seg=seg->next;
     }
     printf("\n");
-    printf("==== Transactions\n");
-    transac* pending=tm_region->pending;
-    while (pending){
-        display_transac(pending);
-        pending=pending->next;
-    }
-    printf("================================================\n");
     pthread_mutex_unlock(&(tm_region->debug_lock));
 }
 void display_segment(segment* sg, size_t align){
@@ -67,7 +60,7 @@ void display_wSet(wSet* s){
 }
 void display_transac(transac* tr){
     printf("- Transaction %p: ", tr);
-    printf("rv: %d, wv: %d, is_ro: %d, prev: %p, next: %p\n", tr->rv, tr->wv, tr->is_ro, tr->prev, tr->next);
+    printf("rv: %d, wv: %d, is_ro: %d\n", tr->rv, tr->wv, tr->is_ro);
     printf("== rSet\n");
     display_rSet(tr->rSet);
     printf("== wSet\n");

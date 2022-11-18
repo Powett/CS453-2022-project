@@ -97,7 +97,6 @@ shared_t tm_create(size_t size, size_t align) {
     tm_region->segment_start=start_segment;
     tm_region->allocs      = start_segment;
     tm_region->align       = align;
-    tm_region->pending     = NULL;
     atomic_init(&(tm_region->clock), 0);
     if(DEBUG){
     	printf("Region: %p, Region raw data start: %p\n", tm_region, tm_region->segment_start->raw_data);
@@ -180,12 +179,6 @@ tx_t tm_begin(shared_t shared, bool is_ro) {
     tr->is_ro=is_ro;
     tr->rv= atomic_load(&(tm_region->clock));
     tr->wv=-1;
-    tr->next=tm_region->pending;
-    tr->prev=NULL;
-    if (tr->next){
-        tr->next->prev=tr;
-    }
-    tm_region->pending=tr;
     if(DEBUG){
         printf("= New TX: %03lx, RO: %d\n", (tx_t)tr, is_ro);
     }
@@ -210,7 +203,6 @@ bool tm_end(shared_t shared, tx_t tx) {
             if(DEBUG){
             	printf("Failed transaction, cannot acquire wSet\n");
             }
-            tr->wSet=NULL;
             tr_free(tm_region, tr);
             return false;
         }
@@ -218,26 +210,21 @@ bool tm_end(shared_t shared, tx_t tx) {
         tr->wv=atomic_fetch_add(&(tm_region->clock), 1)+1;
 
         // Check rSet state
-        rSet* failedOn = rSet_check_clear(tr->rSet, tr->wv,tr->rv);
-        tr->rSet=failedOn;
-        if (failedOn){
-            wSet_release_locks_clear(tr->wSet,NULL, -1);
+        if(!rSet_check(tr->rSet, tr->wv,tr->rv)){
+            wSet_release_locks(tr->wSet,NULL, -1);
             if(DEBUG){
             	printf("Failed transaction, wrong rSet state\n");
             }
-            tr->wSet=NULL;
             tr_free(tm_region, tr);
             return false;
         }
 
         // Commit wSet, release locks and write clocks
-        wSet_commit_release_clear(tm_region, tr->wSet, tr->wv);
+        wSet_commit_release(tm_region, tr->wSet, tr->wv);
         if (DEBUG){
             printf("Commit succeeded, releasing locks, writing wv:%d\n", tr->wv);
         }
-        tr->wSet=NULL;
     }
-    // Terminate the transaction (optional, handled by the pending cleaning ?)
     tr_free(tm_region, tr);
     if(DEBUG){
     	printf("[OK]= End TX: %03lx\n", tx);

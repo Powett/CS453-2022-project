@@ -56,11 +56,10 @@ bool wSet_acquire_locks(wSet* set){
     while (set){
             if (likely(!set->isFreed)){
                 if (!atomic_compare_exchange_strong(&(set->ls->locked), &expected_lock, true)){
-                    wSet_release_locks_clear(start, set, -1);
+                    wSet_release_locks(start, set, -1);
                     if (DEBUG){
                         printf("Failed wSet acquire on lock %p\n", set->ls);
                     }
-                    clear_wSet(set);
                     return false;
                 }
                 if (DEBUG>2){
@@ -72,7 +71,7 @@ bool wSet_acquire_locks(wSet* set){
     return true;
 }
 
-void wSet_release_locks_clear(wSet* start, wSet* end, int wv){
+void wSet_release_locks(wSet* start, wSet* end, int wv){
     wSet* set=start;
     bool expected_lock=true;
     while (set && set!=end){
@@ -89,8 +88,6 @@ void wSet_release_locks_clear(wSet* start, wSet* end, int wv){
                 return;
             }
         }
-        free(set->src);
-        free(set);
         set=tail;
     }
     if (set!=end){
@@ -98,7 +95,7 @@ void wSet_release_locks_clear(wSet* start, wSet* end, int wv){
     }
 }
 
-rSet* rSet_check_clear(rSet* set, int wv, int rv){
+bool rSet_check(rSet* set, int wv, int rv){
     if (wv!=rv+1){
         while (set){
             rSet* tail=set->next;
@@ -106,16 +103,15 @@ rSet* rSet_check_clear(rSet* set, int wv, int rv){
                 if (DEBUG){
                     printf("Failed rSet check on lock %p, locked: %d, vStamp/oldVstamp/rv : %d/%d/%d\n", set->ls, set->ls->locked, set->ls->versionStamp, set->old_version,rv);
                 }
-                return set;
+                return false;
             }
-            free(set);
             set=tail;
         }
     }
-    return NULL;
+    return true;
 }
 
-bool wSet_commit_release_clear(region* tm_region, wSet* set, int wv){
+bool wSet_commit_release(region* tm_region, wSet* set, int wv){
     bool expected_lock=true;
     while (set){
         wSet* tail=set->next;
@@ -130,28 +126,17 @@ bool wSet_commit_release_clear(region* tm_region, wSet* set, int wv){
                 printf("Fatal Error: Tried to release unlocked lock in wSet commit release clear\n");
             }
         }
-        free(set->src);
-        free(set);
         set=tail;
     }
     return true;
 }
 
-void tr_free(region* tm_region, transac* tr){
+void tr_free(unused(region* tm_region), transac* tr){
     if (unlikely(!tr)){
         return;
     }
     clear_wSet(tr->wSet);
     clear_rSet(tr->rSet);
-    
-    if(tr->prev){
-        (tr->prev)->next=tr->next;
-    }else{
-        tm_region->pending=tr->next;
-    }
-    if(tr->next){
-        (tr->next)->prev=tr->prev;
-    }
     free(tr);
 }
 
