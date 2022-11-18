@@ -105,8 +105,11 @@ bool rSet_check(rSet* set, int wv, int rv){
                 }
                 return false;
             }
+            free(set);
             set=tail;
         }
+    }else{
+        clear_rSet(set);
     }
     return true;
 }
@@ -131,7 +134,7 @@ bool wSet_commit_release(region* tm_region, wSet* set, int wv){
     return true;
 }
 
-void tr_free(unused(region* tm_region), transac* tr){
+void abort_tr(transac* tr){
     if (unlikely(!tr)){
         return;
     }

@@ -78,4 +78,4 @@ void wSet_release_locks(wSet* start, wSet* stop, int wv_to_write);
 bool rSet_check(rSet* set, int wv, int rv);
 bool wSet_commit_release(region* tm_region, wSet* set, int wv);
 
-void tr_free(region* tm_region, transac* tx);
+void abort_tr(transac* tx);
