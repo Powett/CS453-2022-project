@@ -269,7 +269,8 @@ bool tm_read(shared_t shared, tx_t tx, void const* source, size_t size, void* ta
     }
     size_t len=size/tm_region->align;
     int locked, versionStamp;
-    for(size_t i=0;i<len;i++){
+    wSet* found_wSet=NULL;
+    for(int i=len-1;i>=0;i--){
         ls=&(seg->locks[i+offset]);
         locked=atomic_load(&(ls->locked));
         versionStamp=ls->versionStamp;
@@ -281,7 +282,10 @@ bool tm_read(shared_t shared, tx_t tx, void const* source, size_t size, void* ta
             return false;
         }
         if (!tr->is_ro){
-            wSet* found_wSet=wSet_contains((word*) (source+i*tm_region->align), tr->wSet);
+            if (!found_wSet){
+                found_wSet=tr->wSet;
+            }
+            found_wSet=wSet_contains((word*) (source+i*tm_region->align), found_wSet);
             if(DEBUG){
             	printf("Direct find in read: %d\n", found_wSet!=NULL);
             }
@@ -358,9 +362,12 @@ bool tm_write(shared_t shared, tx_t tx, void const* source, size_t size, void* t
         abort_tr(tr);
         return false;
     }
-
-    for(size_t i=0;i<len;i++){
-        wSet* found_wSet=wSet_contains((word*) (target+i*tm_region->align), tr->wSet);
+    wSet* found_wSet=NULL;
+    for(int i=len-1;i>=0;i--){
+        if (!found_wSet){
+            found_wSet=tr->wSet;
+        }
+        found_wSet=wSet_contains((word*) (target+i*tm_region->align), found_wSet);
         if (found_wSet){
             if (unlikely(found_wSet->isFreed)){
                 if(DEBUG){
@@ -471,8 +478,12 @@ bool tm_free(shared_t shared, tx_t tx, void* target) {
         abort_tr(tr);
         return false;
     }
-    for(size_t i=0;i<seg->len;i++){
-        wSet* found_wSet=wSet_contains((word*)(target+i*tm_region->align), tr->wSet);
+    wSet* found_wSet=NULL;
+    for(int i=seg->len-1;i>=0;i--){
+        if (!found_wSet){
+            found_wSet=tr->wSet;
+        }
+        found_wSet=wSet_contains((word*)(target+i*tm_region->align), found_wSet);
         if (found_wSet){
             if (found_wSet->isFreed){
                 if(DEBUG){
