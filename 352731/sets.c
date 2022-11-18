@@ -2,16 +2,17 @@
 #include "macros.h"
 
 
-void clearrSet(rSet* set){
+void clear_rSet(rSet* set){
     while (set){
         rSet* tail = set->next;
         free(set);
         set=tail;
     }
 }
-void clearwSet(wSet* set){
+void clear_wSet(wSet* set){
     while (set){
         wSet* tail = set->next;
+        free(set->src);
         free(set);
         set=tail;
     }
@@ -51,108 +52,107 @@ void* add_segment(shared_t shared, segment* seg){
 
 bool wSet_acquire_locks(wSet* set){
     wSet* start=set;
+    bool expected_lock=false;
     while (set){
             if (likely(!set->isFreed)){
-                take_lockstamp(set->ls);
-                if (set->ls->locked){
-                    release_lockstamp(set->ls);
-                    wSet_release_locks(start, set, -1);
+                if (!atomic_compare_exchange_strong(&(set->ls->locked), &expected_lock, true)){
+                    wSet_release_locks_clear(start, set, -1);
                     if (DEBUG){
                         printf("Failed wSet acquire on lock %p\n", set->ls);
                     }
+                    clear_wSet(set);
                     return false;
                 }
-                set->ls->locked=true;
                 if (DEBUG>2){
                     printf("Locked lock %p\n", set->ls);
                 }
-                release_lockstamp(set->ls);
             }
             set=set->next;
         }
     return true;
 }
 
-void wSet_release_locks(wSet* start, wSet* end, int wv){
+void wSet_release_locks_clear(wSet* start, wSet* end, int wv){
     wSet* set=start;
+    bool expected_lock=true;
     while (set && set!=end){
+        wSet* tail=set->next;
         if (likely(!set->isFreed)){
-            take_lockstamp(set->ls);
             if (DEBUG>2){
                 printf("Unlocked lock %p\n", set->ls);
             }
             if (wv!=-1){
                 set->ls->versionStamp=wv;
             }
-            set->ls->locked=false;
-            release_lockstamp(set->ls);
+            if (!atomic_compare_exchange_strong(&(set->ls->locked), &expected_lock, false)){
+                printf("Error: Tried to release unlocked lock\n");
+                return;
+            }
         }
-        set=set->next;
+        free(set->src);
+        free(set);
+        set=tail;
     }
     if (set!=end){
         printf("Error occured while releasing locks: unexpected NULL");
     }
 }
 
-bool rSet_check(rSet* set, int wv, int rv){
+rSet* rSet_check_clear(rSet* set, int wv, int rv){
     if (wv!=rv+1){
         while (set){
-            take_lockstamp(set->ls);
-            if (set->ls->locked || set->ls->versionStamp > rv || set->ls->versionStamp>set->old_version){
+            rSet* tail=set->next;
+            if (atomic_load(&(set->ls->locked)) || set->ls->versionStamp > rv || set->ls->versionStamp>set->old_version){
                 if (DEBUG){
                     printf("Failed rSet check on lock %p, locked: %d, vStamp/oldVstamp/rv : %d/%d/%d\n", set->ls, set->ls->locked, set->ls->versionStamp, set->old_version,rv);
                 }
-                release_lockstamp(set->ls);
-                return false;
+                return set;
             }
-            release_lockstamp(set->ls);
-            set=set->next;
+            free(set);
+            set=tail;
         }
     }
-    return true;
+    return NULL;
 }
 
-bool wSet_commit(region* tm_region, wSet* set){
+bool wSet_commit_release_clear(region* tm_region, wSet* set, int wv){
+    bool expected_lock=true;
     while (set){
+        wSet* tail=set->next;
         if (!set->isFreed){
             memcpy(set->dest, set->src, tm_region->align);
         }
-        set=set->next;
+        if (likely(!set->isFreed)){
+            if (wv!=-1){
+                set->ls->versionStamp=wv;
+            }
+            if (!atomic_compare_exchange_strong(&(set->ls->locked), &expected_lock, false)){
+                printf("Fatal Error: Tried to release unlocked lock in wSet commit release clear\n");
+            }
+        }
+        free(set->src);
+        free(set);
+        set=tail;
     }
     return true;
 }
 
-void tr_free(unused(region* tm_region), transac* tr){
+void tr_free(region* tm_region, transac* tr){
     if (unlikely(!tr)){
         return;
     }
-    rSet* rCursor=tr->rSet;
-    while (rCursor){
-        rSet* rtail=(rCursor)->next;
-        free(rCursor);
-        rCursor=rtail;
-    }
-    tr->rSet=NULL;
-
-    wSet* wCursor=tr->wSet;
-    wSet* wtail;
-    while (wCursor){
-        wtail=wCursor->next;
-        free(wCursor->src);
-        free(wCursor);
-        wCursor=wtail;
-    }
-    tr->wSet=NULL;
+    clear_wSet(tr->wSet);
+    clear_rSet(tr->rSet);
     
-    if (tm_region->pending==tr){
+    if(tr->prev){
+        (tr->prev)->next=tr->next;
+    }else{
         tm_region->pending=tr->next;
     }
     if(tr->next){
         (tr->next)->prev=tr->prev;
     }
-    if(tr->prev){
-        (tr->prev)->next=tr->next;
-    }
+    free(tr);
 }
 
 wSet* wSet_contains(word* addr, wSet* set){

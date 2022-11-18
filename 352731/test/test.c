@@ -38,13 +38,16 @@ int main(){
     tx1=tm_begin(tm_region, false);
     source=2;
     printf("Read OK?: %d\n", tm_read(tm_region, tx1, start, sizeof(dest), (void*) &dest));
-    printf("Write OK?: %d \n", tm_write(tm_region, tx1,  (void*) &source, sizeof(source), start));
+    printf("Write OK?: %d \n", tm_write(tm_region, tx,  (void*) &source, sizeof(source), start));
     printf("Alloc OK?: %d\n", tm_alloc(tm_region, tx1,16,&seg2)==success_alloc);
     source=5;
-    printf("Write OK?: %d\n", tm_write(tm_region, tx, (void*) &source, sizeof(source), seg2));
-    printf("Free OK?: %d\n", tm_free(tm_region,tx, seg2));
+    printf("Write OK?: %d\n", tm_write(tm_region, tx1, (void*) &source, sizeof(source)+1, seg2));
+    // printf("Free OK?: %d\n", tm_free(tm_region,tx, seg2));
+    // printf("End OK?: %d\n", tm_end(tm_region, tx1));
     printf("End OK?: %d\n", tm_end(tm_region, tx));
-    printf("End OK?: %d\n", tm_end(tm_region, tx1));
     // display_region((region*)tm_region);
+    // display_wSet(((transac*)tx)->wSet);
     tm_destroy(tm_region);
+    // wSet* set=(wSet*) malloc(sizeof(wSet));
+    // clear_wSet(set);
 }

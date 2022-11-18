@@ -75,9 +75,7 @@ void display_transac(transac* tr){
     printf("\n");
 }
 void display_lock(lockStamp* ls){
-    take_lockstamp(ls);
     printf("(@%p) [%04d|%d] ",ls, ls->versionStamp, ls->locked);
-    release_lockstamp(ls);
 }
 
 void init_display(region* tm_region){

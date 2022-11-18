@@ -18,12 +18,8 @@ bool release_lockstamp(lockStamp* ls){
 }
 
 bool init_lockstamp(lockStamp* ls, int version){
-    ls->locked=false;
     ls->versionStamp=version;
-    return pthread_mutex_init(&(ls->mutex), NULL)==0;
-}
-
-bool destroy_lockstamp(lockStamp* ls){
-    return pthread_mutex_destroy(&(ls->mutex))==0;
+    atomic_init(&(ls->locked), false);
+    return true;
 }
 

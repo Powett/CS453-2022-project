@@ -70,15 +70,15 @@ typedef struct region{
 segment* find_segment(shared_t shared, word* target);
 void* add_segment(shared_t shared, segment* seg);
 
-void clearrSet(rSet* set);
-void clearwSet(wSet* set);
+void clear_rSet(rSet* set);
+void clear_wSet(wSet* set);
 
 wSet* wSet_contains(word* addr, wSet* set);
 
 bool wSet_acquire_locks(wSet* set);
-void wSet_release_locks(wSet* start, wSet* stop, int wv_to_write);
+void wSet_release_locks_clear(wSet* start, wSet* stop, int wv_to_write);
 
-bool rSet_check(rSet* set, int wv, int rv);
-bool wSet_commit(region* tm_region, wSet* set);
+rSet* rSet_check_clear(rSet* set, int wv, int rv);
+bool wSet_commit_release_clear(region* tm_region, wSet* set, int wv);
 
 void tr_free(region* tm_region, transac* tx);
