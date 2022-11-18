@@ -57,6 +57,7 @@ bool wSet_acquire_locks(wSet* set){
             if (likely(!set->isFreed)){
                 if (!atomic_compare_exchange_strong(&(set->ls->locked), &expected_lock, true)){
                     wSet_release_locks(start, set, -1);
+                    clear_wSet(set);
                     if (DEBUG){
                         printf("Failed wSet acquire on lock %p\n", set->ls);
                     }
@@ -88,6 +89,8 @@ void wSet_release_locks(wSet* start, wSet* end, int wv){
                 return;
             }
         }
+        free(set->src);
+        free(set);
         set=tail;
     }
     if (set!=end){

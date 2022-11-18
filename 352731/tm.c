@@ -200,6 +200,7 @@ bool tm_end(shared_t shared, tx_t tx) {
     if (!tr->is_ro){
         // Acquire locks on wSet
         if(!wSet_acquire_locks(tr->wSet)){
+            tr->wSet=NULL;
             if(DEBUG){
             	printf("Failed transaction, cannot acquire wSet\n");
             }
@@ -213,6 +214,7 @@ bool tm_end(shared_t shared, tx_t tx) {
         if(!rSet_check(tr->rSet, tr->wv,tr->rv)){
             tr->rSet=NULL;
             wSet_release_locks(tr->wSet,NULL, -1);
+            tr->wSet=NULL;
             if(DEBUG){
             	printf("Failed transaction, wrong rSet state\n");
             }
