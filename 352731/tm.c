@@ -18,7 +18,7 @@
  *
  * @section DESCRIPTION
  *
- * Transaction manager implementation, following TLII specification
+ * Transaction manager implementation, following TL2 specification
 **/
 
 // Requested features
@@ -54,9 +54,9 @@ shared_t tm_create(size_t size, size_t align) {
         return invalid_shared;
     }
     size_t len = size/align;
-    if (DEBUG){
-        printf("== New Create: size %ld, align %ld\n", size, align);
-    }
+//    if (DEBUG){
+//        printf("== New Create: size %ld, align %ld\n", size, align);
+//    }
     region* tm_region = (region*) malloc(sizeof(region));
     if (unlikely(!tm_region)) {
         printf("Could not allocate region\n");
@@ -129,9 +129,9 @@ void tm_destroy(shared_t shared) {
 **/
 void* tm_start(shared_t shared) {
     void* start=((region*) shared)->segment_start->raw_data;
-    if (DEBUG>1){
-        printf("Region starts @%p\n", start);
-    }
+//    if (DEBUG>1){
+//        printf("Region starts @%p\n", start);
+//    }
     return start;
 }
 
@@ -144,9 +144,9 @@ size_t tm_size(shared_t shared) {
     size_t align,len;
     align = tm_region->align;
     len = tm_region->segment_start->len;
-    if (DEBUG>1){
-        printf("Region starts with a len %ld, size %ld seg @%p\n", len,len*align, tm_region->segment_start);
-    }
+//    if (DEBUG>1){
+//        printf("Region starts with a len %ld, size %ld seg @%p\n", len,len*align, tm_region->segment_start);
+//    }
     return (len*align);
 }
 
@@ -156,9 +156,9 @@ size_t tm_size(shared_t shared) {
 **/
 size_t tm_align(shared_t shared) {
     size_t align = ((region*) shared)->align;
-    if (DEBUG>1){
-        printf("Region is %ld-bytes aligned\n", align);
-    }
+//    if (DEBUG>1){
+//        printf("Region is %ld-bytes aligned\n", align);
+//    }
     return align;
 }
 
@@ -225,9 +225,9 @@ bool tm_end(shared_t shared, tx_t tx) {
         // Commit wSet, release locks and write clocks
         wSet_commit_release(tm_region, tr->wSet, tr->wv);
         tr->wSet=NULL;
-        if (DEBUG){
-            printf("Commit succeeded, releasing locks, writing wv:%d\n", tr->wv);
-        }
+//        if (DEBUG){
+//            printf("Commit succeeded, releasing locks, writing wv:%d\n", tr->wv);
+//        }
     }
     free(tr);
     if(DEBUG){
@@ -264,9 +264,9 @@ bool tm_read(shared_t shared, tx_t tx, void const* source, size_t size, void* ta
         return true;
     }
     size_t offset = (source-seg->raw_data)/tm_region->align;
-    if (DEBUG>2){
-        printf("Found segment for source %p @%p, offset: %ld\n", source, seg, offset);
-    }
+//    if (DEBUG>2){
+//        printf("Found segment for source %p @%p, offset: %ld\n", source, seg, offset);
+//    }
     size_t len=size/tm_region->align;
     int locked, versionStamp;
     wSet* found_wSet=NULL;
@@ -274,7 +274,7 @@ bool tm_read(shared_t shared, tx_t tx, void const* source, size_t size, void* ta
         ls=&(seg->locks[i+offset]);
         locked=atomic_load(&(ls->locked));
         versionStamp=ls->versionStamp;
-        if (locked){
+        if (locked || versionStamp>tr->rv){
             if(DEBUG){
                 printf("Read pre-validation failed transaction, locked\n");
             }
@@ -308,7 +308,7 @@ bool tm_read(shared_t shared, tx_t tx, void const* source, size_t size, void* ta
         }else{
             memcpy((target+i*tm_region->align),source+i*tm_region->align, tm_region->align);
         }
-        if (atomic_load(&(ls->locked)) || versionStamp>tr->rv || ls->versionStamp>versionStamp){
+        if (atomic_load(&(ls->locked)) || ls->versionStamp>versionStamp){
             if(DEBUG){
                 printf("Read post-validation failed transaction, locked\n");
             }
@@ -351,9 +351,9 @@ bool tm_write(shared_t shared, tx_t tx, void const* source, size_t size, void* t
     }
     size_t offset = (target-seg->raw_data)/tm_region->align;
 
-    if (DEBUG>2){
-        printf("Found segment for target %p @%p, offset: %ld\n", source, seg, offset);
-    }
+//    if (DEBUG>2){
+//        printf("Found segment for target %p @%p, offset: %ld\n", source, seg, offset);
+//    }
     if (unlikely(tr->is_ro)){
         printf("WO transaction trying to write !\n");
         if(DEBUG){
