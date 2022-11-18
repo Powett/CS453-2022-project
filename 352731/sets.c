@@ -132,6 +132,8 @@ bool wSet_commit_release(region* tm_region, wSet* set, int wv){
                 printf("Fatal Error: Tried to release unlocked lock in wSet commit release clear\n");
             }
         }
+        free(set->src);
+        free(set);
         set=tail;
     }
     return true;
