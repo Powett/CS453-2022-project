@@ -21,25 +21,29 @@ void clear_wSet(wSet* set){
 segment* find_segment(shared_t shared, word* target){
     region* tm_region=(region* ) shared;
     segment* segment=tm_region->allocs;
-    while (segment && (segment->raw_data+(segment->len)*tm_region->align<target)){
+    // pthread_mutex_lock(&(tm_region->segment_list_lock));
+    while (segment && segment->raw_data<=target){
+        if ((segment->raw_data+(segment->len)*tm_region->align)>=target){
 //        if (DEBUG){
 //            printf("Checking bounds to find seg(%p): [%p - %p]\n", target, segment->raw_data, segment->raw_data+(segment->len)*tm_region->align);
 //        }
+            return segment;
+        }
         segment=segment->next;
     }
-    if (!segment){
-        return NULL;
-    }
-    return segment;
+    // pthread_mutex_unlock(&(tm_region->segment_list_lock))
+    return NULL;
 }
 
 void* add_segment(shared_t shared, segment* seg){
     region* tm_region=(region*) shared;
     segment* cursor=tm_region->allocs;
+    // pthread_mutex_lock(&(tm_region->segment_list_lock));
     void* raw_data_start = seg->raw_data;
-    if (raw_data_start<cursor->raw_data){
-        seg->next=cursor;
+    if (raw_data_start<=tm_region->allocs->raw_data){
+        seg->next=tm_region->allocs;
         tm_region->allocs=seg;
+        // pthread_mutex_unlock(&(tm_region->segment_list_lock));
         return raw_data_start;
     }
     while (cursor->next && cursor->next->raw_data < raw_data_start){
@@ -47,6 +51,7 @@ void* add_segment(shared_t shared, segment* seg){
     }
     seg->next=cursor->next;
     cursor->next=seg;
+    // pthread_mutex_unlock(&(tm_region->segment_list_lock));
     return raw_data_start;
 }
 
@@ -131,6 +136,26 @@ bool wSet_commit_release(region* tm_region, wSet* set, int wv){
             if (!atomic_compare_exchange_strong(&(set->ls->locked), &expected_lock, false)){
                 printf("Fatal Error: Tried to release unlocked lock in wSet commit release clear\n");
             }
+        }else if (set->segToFree){
+            segment* seg = set->segToFree;
+            segment* prev=tm_region->allocs;
+            if (prev==seg){
+                tm_region->allocs=seg->next;
+            }else{
+                while (prev && prev->next!=seg){
+                    prev=prev->next;
+                }
+                if (!prev){
+                    if (DEBUG){
+                        printf("Fatal error: could not free cell: possible double free?\n");
+                    }
+                    return false;
+                }
+                prev->next=seg->next;
+            }
+            free(seg->locks);
+            free(seg->raw_data);
+            free(seg);
         }
         free(set->src);
         free(set);

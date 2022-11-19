@@ -20,6 +20,7 @@ typedef struct wSet{
     word* dest;
     lockStamp* ls;
     bool isFreed;
+    struct segment* segToFree;
     struct wSet* next;
     struct wSet* prev;
 } wSet;
@@ -61,6 +62,7 @@ typedef struct region{
     atomic_int clock;       // Global clock used for time-stamping, perfectible ?
 
     pthread_mutex_t debug_lock; // debug coarse lock
+    pthread_mutex_t segment_list_lock;
  } region;
 
 

@@ -10,7 +10,7 @@
 typedef struct lockStamp{
     pthread_mutex_t mutex;
     int versionStamp;
-    bool locked;
+    atomic_bool locked;
 }lockStamp;
 
 // /**

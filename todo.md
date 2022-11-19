@@ -1,10 +1,9 @@
 # Général
 - Optimize
   - Clock ?
-  - Locks parasites ?
   - cleanup à la fin
-  - 
-- Remove -g
+  - voir si vraiment besoin lock pour seg list ?
+  - fixer segfault pour grosses valeurs
 - 
 
 
