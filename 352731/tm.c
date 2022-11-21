@@ -464,7 +464,6 @@ bool tm_free(shared_t shared, tx_t tx, void* target) {
     }
     region* tm_region = (region*) shared;
     transac* tr=(transac*)tx;
-    segment* prev=NULL;
     segment* seg=tm_region->allocs;
     if (unlikely(tr->is_ro || tm_region->segment_start==target)){
         printf("Failed transaction, forbidden operation (free in RO or free start seg)\n");
