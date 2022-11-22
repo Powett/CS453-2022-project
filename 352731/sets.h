@@ -21,8 +21,8 @@ typedef struct wSet{
     lockStamp* ls;
     bool isFreed;
     struct segment* segToFree;
-    struct wSet* next;
-    struct wSet* prev;
+    struct wSet* left;
+    struct wSet* right;
 } wSet;
 
 // Linked lists to track read operations
@@ -69,11 +69,14 @@ void clear_rSet(rSet* set);
 void clear_wSet(wSet* set);
 
 wSet* wSet_contains(word* addr, wSet* set);
+wSet* wSet_insert(wSet* node, word* addr, wSet* parent);
+
+void wSet_free(wSet* root);
 
 bool wSet_acquire_locks(wSet* set);
-void wSet_release_locks(wSet* start, wSet* stop, int wv_to_write);
+void wSet_release_locks(wSet* root, int wv_to_write);
 
 bool rSet_check(rSet* set, int wv, int rv);
-bool wSet_commit_release(region* tm_region, wSet* set, int wv);
+void wSet_commit_release(region* tm_region, wSet* set, int wv);
 
 void abort_tr(transac* tx);

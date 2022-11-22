@@ -212,7 +212,7 @@ bool tm_end(shared_t shared, tx_t tx) {
         // Check rSet state
         if(!rSet_check(tr->rSet, tr->wv,tr->rv)){
             tr->rSet=NULL;
-            wSet_release_locks(tr->wSet,NULL, -1);
+            wSet_release_locks(tr->wSet, -1);
             tr->wSet=NULL;
             if(DEBUG){
             	printf("Failed transaction, wrong rSet state\n");
@@ -274,11 +274,7 @@ bool tm_read(shared_t shared, tx_t tx, void const* source, size_t size, void* ta
     wSet* found_wSet=NULL;
     for(int i=len-1;i>=0;i--){
         if (!tr->is_ro){
-            if (found_wSet && found_wSet->next && found_wSet->next->dest==(word*) (source+i*tm_region->align)){
-                found_wSet=found_wSet->next;
-            }else{
-                found_wSet=wSet_contains((word*) (source+i*tm_region->align), tr->wSet);
-            }
+            found_wSet=wSet_contains((word*) (source+i*tm_region->align), tr->wSet);
             if(DEBUG>2){
             	printf("Direct find in read: %d\n", found_wSet!=NULL);
             }
@@ -296,7 +292,7 @@ bool tm_read(shared_t shared, tx_t tx, void const* source, size_t size, void* ta
         }
 
         ls=&(seg->locks[i+offset]);
-        prev_locked=atomic_load(&(ls->locked));
+        prev_locked=test_lockstamp(ls);
         // if (prev_locked){
         //     abort_tr(tr);
         //     return false;
@@ -307,7 +303,7 @@ bool tm_read(shared_t shared, tx_t tx, void const* source, size_t size, void* ta
             return false;
         }
         memcpy((target+i*tm_region->align),source+i*tm_region->align, tm_region->align);
-        post_locked=atomic_load(&(ls->locked));
+        post_locked=test_lockstamp(ls);
         post_versionStamp=ls->versionStamp;
         
         if (post_locked || post_versionStamp!=prev_versionStamp){
@@ -387,8 +383,10 @@ bool tm_write(shared_t shared, tx_t tx, void const* source, size_t size, void* t
             newWCell->ls=&(seg->locks[i+offset]);
             newWCell->isFreed=false;
             newWCell->segToFree=NULL;
-            newWCell->next=tr->wSet;
-            tr->wSet=newWCell;
+            newWCell->left=NULL;
+            newWCell->right=NULL;
+            tr->wSet=wSet_insert(newWCell, newWCell->dest, tr->wSet);
+
         }
     }
     if(DEBUG>2){
@@ -496,8 +494,11 @@ bool tm_free(shared_t shared, tx_t tx, void* target) {
             newWCell->ls=&(seg->locks[i]);
             newWCell->isFreed=true;
             newWCell->segToFree=NULL;
-            newWCell->next=tr->wSet;
-            tr->wSet=newWCell;
+            newWCell->left=NULL;
+            newWCell->right=NULL;
+            newWCell->left=NULL;
+            newWCell->right=NULL;
+            tr->wSet=wSet_insert(newWCell, newWCell->dest, tr->wSet);
             found_wSet=tr->wSet;
         }
         if (i==0){

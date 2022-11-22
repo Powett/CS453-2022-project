@@ -10,11 +10,11 @@ void clear_rSet(rSet* set){
     }
 }
 void clear_wSet(wSet* set){
-    while (set){
-        wSet* tail = set->next;
+    if (set){
+        clear_wSet(set->left);
+        clear_wSet(set->right);
         free(set->src);
         free(set);
-        set=tail;
     }
 }
 
@@ -50,59 +50,12 @@ void* add_segment(shared_t shared, segment* seg){
     return raw_data_start;
 }
 
-bool wSet_acquire_locks(wSet* set){
-    wSet* start=set;
-    bool expected_lock=false;
-    while (set){
-            if (likely(!set->isFreed)){
-                if (!atomic_compare_exchange_strong(&(set->ls->locked), &expected_lock, true)){
-                    wSet_release_locks(start, set, -1);
-                    clear_wSet(set);
-                   if (DEBUG>1){
-                       printf("Failed wSet acquire on lock %p\n", set->ls);
-                   }
-                    return false;
-                }
-               if (DEBUG>2){
-                   printf("Locked lock %p\n", set->ls);
-               }
-            }
-            set=set->next;
-        }
-    return true;
-}
-
-void wSet_release_locks(wSet* start, wSet* end, int wv){
-    wSet* set=start;
-    bool expected_lock=true;
-    while (set && set!=end){
-        wSet* tail=set->next;
-        if (likely(!set->isFreed)){
-           if (DEBUG>2){
-               printf("Unlocked lock %p\n", set->ls);
-           }
-            if (wv!=-1){
-                set->ls->versionStamp=wv;
-            }
-            if (!atomic_compare_exchange_strong(&(set->ls->locked), &expected_lock, false)){
-                printf("Error: Tried to release unlocked lock\n");
-                return;
-            }
-        }
-        free(set->src);
-        free(set);
-        set=tail;
-    }
-    if (set!=end){
-        printf("Error occured while releasing locks: unexpected NULL");
-    }
-}
 
 bool rSet_check(rSet* set, int wv, int rv){
     if (wv!=rv+1){
         while (set){
             rSet* tail=set->next;
-            if (atomic_load(&(set->ls->locked)) || set->ls->versionStamp > rv){
+            if (test_lockstamp(set->ls) || set->ls->versionStamp > rv){
                if (DEBUG>1){
                    printf("Failed rSet check on lock %p, locked: %d, vStamp/rv : %d/%d\n", set->ls, set->ls->locked, set->ls->versionStamp,rv);
                }
@@ -117,48 +70,6 @@ bool rSet_check(rSet* set, int wv, int rv){
     return true;
 }
 
-bool wSet_commit_release(region* tm_region, wSet* set, int wv){
-    bool expected_lock=true;
-    while (set){
-        wSet* tail=set->next;
-        if (!set->isFreed){
-            memcpy(set->dest, set->src, tm_region->align);
-        }
-        if (likely(!set->isFreed)){
-            if (wv!=-1){
-                set->ls->versionStamp=wv;
-            }
-            if (!atomic_compare_exchange_strong(&(set->ls->locked), &expected_lock, false)){
-                printf("Fatal Error: Tried to release unlocked lock in wSet commit release clear\n");
-            }
-        }else if (set->segToFree){
-            segment* seg = set->segToFree;
-            segment* prev=tm_region->allocs;
-            if (prev==seg){
-                tm_region->allocs=seg->next;
-            }else{
-                while (prev && prev->next!=seg){
-                    prev=prev->next;
-                }
-                if (!prev){
-                    if (DEBUG){
-                        printf("Fatal error: could not free cell: possible double free?\n");
-                    }
-                    return false;
-                }
-                prev->next=seg->next;
-            }
-            free(seg->locks);
-            free(seg->raw_data);
-            free(seg);
-        }
-        free(set->src);
-        free(set);
-        set=tail;
-    }
-    return true;
-}
-
 void abort_tr(transac* tr){
     if (unlikely(!tr)){
         return;
@@ -169,11 +80,107 @@ void abort_tr(transac* tr){
 }
 
 wSet* wSet_contains(word* addr, wSet* set){
-    while (set){
-        if (set->dest==addr){
-            return set;
-        }
-        set=set->next;
+    wSet* side=NULL;
+    if (!set){
+        return NULL;
     }
-    return NULL;
+    if (addr == set->dest){
+        return set;
+    }
+    if (addr > set->dest){
+        side=set->right;
+    }else{
+        side=set->left;
+    }
+    return wSet_contains(addr, side);
+}
+
+wSet* wSet_insert(wSet* node, word* addr, wSet* parent){
+    if (unlikely(!parent)){
+        return node;
+    }
+    wSet* side=NULL;
+    if (addr > parent->dest){
+        if (!parent->right){
+            parent->right=node;
+            return parent;
+        }else{
+            side=parent->right;
+        }
+    }else{
+        if (!parent->left){
+            parent->left=node;
+            return parent;
+        }else{
+            side=parent->left;
+        }
+    }
+    wSet_insert(node,addr,side);
+    return parent;
+}
+
+bool wSet_acquire_locks(wSet* set){
+    if (!set){
+        return true;
+    }
+    if (!take_lockstamp(set->ls)){
+        return false;
+    }
+    if (!wSet_acquire_locks(set->left)){
+        release_lockstamp(set->ls);
+        return false;
+    }
+    if (!wSet_acquire_locks(set->right)){
+        wSet_release_locks(set->left, -1);
+        release_lockstamp(set->ls);
+        return false;
+    }
+    return true;
+}
+
+void wSet_release_locks(wSet* root, int wv_to_write){
+    if (!root){
+        return;
+    }
+    if (wv_to_write!=-1){
+        root->ls->versionStamp=wv_to_write;
+    }
+    release_lockstamp(root->ls);
+    wSet_release_locks(root->left,wv_to_write);
+    wSet_release_locks(root->right,wv_to_write);
+}
+
+void wSet_commit_release(region* tm_region, wSet* set, int wv){
+    if (!set){
+        return;
+    }
+    if (likely(!set->isFreed)){
+        memcpy(set->dest, set->src, tm_region->align);
+        if (wv!=-1){
+            set->ls->versionStamp=wv;
+        }
+        release_lockstamp(set->ls);
+    }else if (set->segToFree){
+        segment* seg = set->segToFree;
+        segment* prev=tm_region->allocs;
+        if (prev==seg){
+            tm_region->allocs=seg->next;
+        }else{
+            while (prev && prev->next!=seg){
+                prev=prev->next;
+            }
+            if (!prev){
+                printf("Fatal error: could not free cell: possible double free?\n");
+                return;
+            }
+            prev->next=seg->next;
+        }
+        free(seg->locks);
+        free(seg->raw_data);
+        free(seg);
+    }
+    wSet_commit_release(tm_region,set->left,wv);
+    wSet_commit_release(tm_region,set->right,wv);
+    free(set->src);
+    free(set);
 }
