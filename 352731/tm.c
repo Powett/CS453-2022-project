@@ -274,9 +274,13 @@ bool tm_read(shared_t shared, tx_t tx, void const* source, size_t size, void* ta
     int prev_versionStamp, post_versionStamp;
     bool prev_locked, post_locked;
     wSet* found_wSet=NULL;
-    for(size_t i=0;i<len;i++){
+    for(int i=len-1;i>=0;i--){
         if (!tr->is_ro){
-            found_wSet=wSet_contains((word*) (source+i*tm_region->align), tr->wSet);
+            if (found_wSet && found_wSet->next && found_wSet->next->dest==(word*) (source+i*tm_region->align)){
+                found_wSet=found_wSet->next;
+            }else{
+                found_wSet=wSet_contains((word*) (source+i*tm_region->align), tr->wSet);
+            }
             if(DEBUG>2){
             	printf("Direct find in read: %d\n", found_wSet!=NULL);
             }
