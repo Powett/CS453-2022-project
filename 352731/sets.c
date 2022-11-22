@@ -21,29 +21,25 @@ void clear_wSet(wSet* set){
 segment* find_segment(shared_t shared, word* target){
     region* tm_region=(region* ) shared;
     segment* segment=tm_region->allocs;
-    // pthread_mutex_lock(&(tm_region->segment_list_lock));
     while (segment && segment->raw_data<=target){
         if ((segment->raw_data+(segment->len)*tm_region->align)>=target){
-//        if (DEBUG){
-//            printf("Checking bounds to find seg(%p): [%p - %p]\n", target, segment->raw_data, segment->raw_data+(segment->len)*tm_region->align);
-//        }
+       if (DEBUG>2){
+           printf("Checking bounds to find seg(%p): [%p - %p]\n", target, segment->raw_data, segment->raw_data+(segment->len)*tm_region->align);
+       }
             return segment;
         }
         segment=segment->next;
     }
-    // pthread_mutex_unlock(&(tm_region->segment_list_lock))
     return NULL;
 }
 
 void* add_segment(shared_t shared, segment* seg){
     region* tm_region=(region*) shared;
     segment* cursor=tm_region->allocs;
-    // pthread_mutex_lock(&(tm_region->segment_list_lock));
     void* raw_data_start = seg->raw_data;
     if (raw_data_start<=tm_region->allocs->raw_data){
         seg->next=tm_region->allocs;
         tm_region->allocs=seg;
-        // pthread_mutex_unlock(&(tm_region->segment_list_lock));
         return raw_data_start;
     }
     while (cursor->next && cursor->next->raw_data < raw_data_start){
@@ -51,7 +47,6 @@ void* add_segment(shared_t shared, segment* seg){
     }
     seg->next=cursor->next;
     cursor->next=seg;
-    // pthread_mutex_unlock(&(tm_region->segment_list_lock));
     return raw_data_start;
 }
 
@@ -63,14 +58,14 @@ bool wSet_acquire_locks(wSet* set){
                 if (!atomic_compare_exchange_strong(&(set->ls->locked), &expected_lock, true)){
                     wSet_release_locks(start, set, -1);
                     clear_wSet(set);
-//                    if (DEBUG){
-//                        printf("Failed wSet acquire on lock %p\n", set->ls);
-//                    }
+                   if (DEBUG>1){
+                       printf("Failed wSet acquire on lock %p\n", set->ls);
+                   }
                     return false;
                 }
-//                if (DEBUG>2){
-//                    printf("Locked lock %p\n", set->ls);
-//                }
+               if (DEBUG>2){
+                   printf("Locked lock %p\n", set->ls);
+               }
             }
             set=set->next;
         }
@@ -83,9 +78,9 @@ void wSet_release_locks(wSet* start, wSet* end, int wv){
     while (set && set!=end){
         wSet* tail=set->next;
         if (likely(!set->isFreed)){
-//            if (DEBUG>2){
-//                printf("Unlocked lock %p\n", set->ls);
-//            }
+           if (DEBUG>2){
+               printf("Unlocked lock %p\n", set->ls);
+           }
             if (wv!=-1){
                 set->ls->versionStamp=wv;
             }
@@ -108,9 +103,9 @@ bool rSet_check(rSet* set, int wv, int rv){
         while (set){
             rSet* tail=set->next;
             if (atomic_load(&(set->ls->locked)) || set->ls->versionStamp > rv || set->ls->versionStamp>set->old_version){
-//                if (DEBUG){
-//                    printf("Failed rSet check on lock %p, locked: %d, vStamp/oldVstamp/rv : %d/%d/%d\n", set->ls, set->ls->locked, set->ls->versionStamp, set->old_version,rv);
-//                }
+               if (DEBUG>1){
+                   printf("Failed rSet check on lock %p, locked: %d, vStamp/oldVstamp/rv : %d/%d/%d\n", set->ls, set->ls->locked, set->ls->versionStamp, set->old_version,rv);
+               }
                 return false;
             }
             free(set);

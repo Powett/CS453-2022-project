@@ -36,11 +36,11 @@
 #include <string.h>
 // Internal headers
 #include <tm.h>
+#include<unistd.h>
 
 #include "macros.h"
 #include "sets.h"
 #include "lockStamp.h"
-#include "displayers.h"
 
 
 /** Create (i.e. allocate + init) a new shared memory region, with one first non-free-able allocated segment of the requested size and alignment.
@@ -54,9 +54,9 @@ shared_t tm_create(size_t size, size_t align) {
         return invalid_shared;
     }
     size_t len = size/align;
-//    if (DEBUG){
-//        printf("== New Create: size %ld, align %ld\n", size, align);
-//    }
+   if (DEBUG>1){
+       printf("== New Create: size %ld, align %ld\n", size, align);
+   }
     region* tm_region = (region*) malloc(sizeof(region));
     if (unlikely(!tm_region)) {
         printf("Could not allocate region\n");
@@ -102,7 +102,6 @@ shared_t tm_create(size_t size, size_t align) {
     	printf("Region: %p, Region raw data start: %p\n", tm_region, tm_region->segment_start->raw_data);
     }
     pthread_mutex_init(&(tm_region->segment_list_lock), NULL);
-    // init_display(tm_region);
     return tm_region;
 }
 
@@ -146,9 +145,9 @@ size_t tm_size(shared_t shared) {
     size_t align,len;
     align = tm_region->align;
     len = tm_region->segment_start->len;
-//    if (DEBUG>1){
-//        printf("Region starts with a len %ld, size %ld seg @%p\n", len,len*align, tm_region->segment_start);
-//    }
+   if (DEBUG>1){
+       printf("Region starts with a len %ld, size %ld seg @%p\n", len,len*align, tm_region->segment_start);
+   }
     return (len*align);
 }
 
@@ -158,9 +157,9 @@ size_t tm_size(shared_t shared) {
 **/
 size_t tm_align(shared_t shared) {
     size_t align = ((region*) shared)->align;
-//    if (DEBUG>1){
-//        printf("Region is %ld-bytes aligned\n", align);
-//    }
+   if (DEBUG>1){
+       printf("Region is %ld-bytes aligned\n", align);
+   }
     return align;
 }
 
@@ -181,9 +180,9 @@ tx_t tm_begin(shared_t shared, bool is_ro) {
     tr->is_ro=is_ro;
     tr->rv= atomic_load(&(tm_region->clock));
     tr->wv=-1;
-    // if(DEBUG){
-    //     printf("= New TX: %03lx, RO: %d\n", (tx_t)tr, is_ro);
-    // }
+    if(DEBUG>1){
+        printf("= New TX: %03lx, RO: %d\n", (tx_t)tr, is_ro);
+    }
     return (tx_t)tr;
 }
 
@@ -203,9 +202,9 @@ bool tm_end(shared_t shared, tx_t tx) {
         // Acquire locks on wSet
         if(!wSet_acquire_locks(tr->wSet)){
             tr->wSet=NULL;
-            // if(DEBUG){
-            // 	printf("Failed transaction, cannot acquire wSet\n");
-            // }
+            if(DEBUG){
+            	printf("Failed transaction, cannot acquire wSet\n");
+            }
             abort_tr(tr);
             return false;
         }
@@ -217,9 +216,9 @@ bool tm_end(shared_t shared, tx_t tx) {
             tr->rSet=NULL;
             wSet_release_locks(tr->wSet,NULL, -1);
             tr->wSet=NULL;
-            // if(DEBUG){
-            // 	printf("Failed transaction, wrong rSet state\n");
-            // }
+            if(DEBUG){
+            	printf("Failed transaction, wrong rSet state\n");
+            }
             abort_tr(tr);
             return false;
         }
@@ -227,14 +226,14 @@ bool tm_end(shared_t shared, tx_t tx) {
         // Commit wSet, release locks and write clocks
         wSet_commit_release(tm_region, tr->wSet, tr->wv);
         tr->wSet=NULL;
-//        if (DEBUG){
-//            printf("Commit succeeded, releasing locks, writing wv:%d\n", tr->wv);
-//        }
+       if (DEBUG>1){
+           printf("Commit succeeded, releasing locks, writing wv:%d\n", tr->wv);
+       }
     }
     free(tr);
-    // if(DEBUG){
-    // 	printf("[OK]= End TX: %03lx\n", tx);
-    // }
+    if(DEBUG>1){
+    	printf("[OK]= End TX: %03lx\n", tx);
+    }
     return true;
 }
 
@@ -261,67 +260,72 @@ bool tm_read(shared_t shared, tx_t tx, void const* source, size_t size, void* ta
         return false;
     }
     if (unlikely(!seg)){
-        printf("Could not find segment for source %p (call: Read (sh)%p to (priv)%p, %ld bytes)\n", source, source, target, size);
-        //memcpy((target),source, size);
+        if (DEBUG){
+            printf("Could not find segment for source %p (call: Read (sh)%p to (priv)%p, %ld bytes)\n", source, source, target, size);
+        }
         abort_tr(tr);
-        return false; //?
+        return false;
     }
     size_t offset = (source-seg->raw_data)/tm_region->align;
-//    if (DEBUG>2){
-//        printf("Found segment for source %p @%p, offset: %ld\n", source, seg, offset);
-//    }
+    if (DEBUG>2){
+        printf("Found segment for source %p @%p, offset: %ld\n", source, seg, offset);
+    }
     size_t len=size/tm_region->align;
-    int locked, versionStamp;
+    int prev_versionStamp, post_versionStamp;
+    bool prev_locked, post_locked;
     wSet* found_wSet=NULL;
-    for(int i=len-1;i>=0;i--){
-        ls=&(seg->locks[i+offset]);
-        locked=atomic_load(&(ls->locked));
-        versionStamp=ls->versionStamp;
-        if (locked || versionStamp>tr->rv){
-            // if(DEBUG){
-            //     printf("Read pre-validation failed transaction, locked\n");
-            // }
-            abort_tr(tr);
-            return false;
-        }
+    for(size_t i=0;i<len;i++){
         if (!tr->is_ro){
-            if (!found_wSet){
-                found_wSet=tr->wSet;
+            found_wSet=wSet_contains((word*) (source+i*tm_region->align), tr->wSet);
+            if(DEBUG>2){
+            	printf("Direct find in read: %d\n", found_wSet!=NULL);
             }
-            found_wSet=wSet_contains((word*) (source+i*tm_region->align), found_wSet);
-            // if(DEBUG){
-            // 	printf("Direct find in read: %d\n", found_wSet!=NULL);
-            // }
             if (found_wSet){
                 if (unlikely(found_wSet->isFreed)){
-                    // if(DEBUG){
-                    // 	printf("Failed transaction, read after free\n");
-                    // }
+                    if(DEBUG){
+                    	printf("Failed transaction, read after free\n");
+                    }
+                    abort_tr(tr);
                     return false;
                 }
                 memcpy((target+i*tm_region->align),found_wSet->src, tm_region->align);
-            }else{
-                rSet* newRCell= (rSet*) malloc(sizeof(rSet));
-                newRCell->ls=ls;
-                newRCell->next=tr->rSet;
-                newRCell->old_version=versionStamp;
-                tr->rSet=newRCell;
-                memcpy(target+i*tm_region->align, source+i*tm_region->align, tm_region->align);
+                continue;
             }
-        }else{
-            memcpy((target+i*tm_region->align),source+i*tm_region->align, tm_region->align);
         }
-        if (atomic_load(&(ls->locked)) || ls->versionStamp>versionStamp){
-            // if(DEBUG){
-            //     printf("Read post-validation failed transaction, locked\n");
-            // }
+
+        ls=&(seg->locks[i+offset]);
+        prev_locked=atomic_load(&(ls->locked));
+        if (prev_locked){
             abort_tr(tr);
             return false;
         }
+        prev_versionStamp=ls->versionStamp;
+        if (prev_versionStamp>tr->rv){
+            abort_tr(tr);
+            return false;
+        }
+        memcpy((target+i*tm_region->align),source+i*tm_region->align, tm_region->align);
+        post_locked=atomic_load(&(ls->locked));
+        post_versionStamp=ls->versionStamp;
+        
+        if (post_locked || post_versionStamp!=prev_versionStamp){
+            if(DEBUG){
+                printf("Read pre-validation failed transaction, post-locked:%d, TS: (post)%d/(pre)%d/(tr)%d\n", post_locked, post_versionStamp, prev_versionStamp,tr->rv);
+            }
+            abort_tr(tr);
+            return false;
+        }
+        if (!tr->is_ro && !found_wSet){
+            rSet* newRCell= (rSet*) malloc(sizeof(rSet));
+            newRCell->ls=ls;
+            newRCell->next=tr->rSet;
+            newRCell->old_version=prev_versionStamp;
+            tr->rSet=newRCell;
+        }
     }
-    // if(DEBUG>1){
-    //     printf("[OK] TX: %03lx, Read: %p to %p, size %ld\n", tx, source, target, size);
-    // }
+    if(DEBUG>1){
+        printf("[OK] TX: %03lx, Read: %p to %p, size %ld\n", tx, source, target, size);
+    }
     return true;
 }
 
@@ -354,28 +358,22 @@ bool tm_write(shared_t shared, tx_t tx, void const* source, size_t size, void* t
     }
     size_t offset = (target-seg->raw_data)/tm_region->align;
 
-//    if (DEBUG>2){
-//        printf("Found segment for target %p @%p, offset: %ld\n", source, seg, offset);
-//    }
+   if (DEBUG>2){
+       printf("Found segment for target %p @%p, offset: %ld\n", source, seg, offset);
+   }
     if (unlikely(tr->is_ro)){
         printf("WO transaction trying to write !\n");
-        // if(DEBUG){
-        // 	printf("Failed transaction, forbidden operation\n");
-        // }
         abort_tr(tr);
         return false;
     }
     wSet* found_wSet=NULL;
-    for(int i=len-1;i>=0;i--){
-        if (!found_wSet){
-            found_wSet=tr->wSet;
-        }
-        found_wSet=wSet_contains((word*) (target+i*tm_region->align), found_wSet);
+    for(size_t i=0;i<len;i++){
+        found_wSet=wSet_contains((word*) (target+i*tm_region->align), tr->wSet);
         if (found_wSet){
             if (unlikely(found_wSet->isFreed)){
-                // if(DEBUG){
-                // 	printf("Failed transaction, write after free\n");
-                // }
+                if(DEBUG){
+                	printf("Failed transaction, write after free\n");
+                }
                 abort_tr(tr);
                 return false;
             }
@@ -406,9 +404,9 @@ bool tm_write(shared_t shared, tx_t tx, void const* source, size_t size, void* t
  * @return Whether the whole transaction can continue (success/nomem), or not (abort_alloc)
 **/
 alloc_t tm_alloc(shared_t shared, tx_t tx, size_t size, void** target) {
-    // if(DEBUG){
-    // 	printf("TX: %03lx, Alloc: size %ld\n", tx, size);
-    // }
+    if(DEBUG>1){
+    	printf("TX: %03lx, Alloc: size %ld\n", tx, size);
+    }
     region* tm_region = (region*) shared;
     transac* tr=(transac*)tx;
     if (unlikely(size%tm_region->align)){
@@ -446,7 +444,7 @@ alloc_t tm_alloc(shared_t shared, tx_t tx, size_t size, void** target) {
         }
     }
     *target=add_segment(shared, newSeg);
-    if(DEBUG){
+    if(DEBUG>1){
     	printf("[OK] TX: %03lx, Alloc: size %ld, @%p, raw data: [%p,%p]\n", tx, size, *target, newSeg->raw_data, newSeg->raw_data+size);
     }
     return success_alloc;
@@ -470,9 +468,7 @@ bool tm_free(shared_t shared, tx_t tx, void* target) {
         abort_tr(tr);
         return false;
     }
-    // pthread_mutex_lock(&(tm_region->segment_list_lock));
     seg=find_segment(shared, target);
-    // pthread_mutex_unlock(&(tm_region->segment_list_lock));
     if (unlikely(!seg)){
         if(DEBUG){
         	printf("Failed transaction, cannot find segment to free\n");
@@ -481,7 +477,7 @@ bool tm_free(shared_t shared, tx_t tx, void* target) {
         return false;
     }
     wSet* found_wSet=tr->wSet;
-    for(int i=seg->len-1;i>=0;i--){
+    for(size_t i=0;i<seg->len;i++){
         found_wSet=wSet_contains((word*)(target+i*tm_region->align), found_wSet);
         if (found_wSet){
             if (found_wSet->isFreed){
@@ -507,7 +503,7 @@ bool tm_free(shared_t shared, tx_t tx, void* target) {
             found_wSet->segToFree=seg;
         }
     }
-    if(DEBUG){
+    if(DEBUG>1){
     	printf("[OK] TX: %03lx, Free: %p\n", tx, target);
     }
     return true;
