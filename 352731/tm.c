@@ -101,7 +101,6 @@ shared_t tm_create(size_t size, size_t align) {
     if(DEBUG){
     	printf("Region: %p, Region raw data start: %p\n", tm_region, tm_region->segment_start->raw_data);
     }
-    pthread_mutex_init(&(tm_region->segment_list_lock), NULL);
     return tm_region;
 }
 
@@ -120,7 +119,6 @@ void tm_destroy(shared_t shared) {
         free(tm_region->allocs);
         tm_region->allocs = tail;
     }
-    pthread_mutex_destroy(&(tm_region->segment_list_lock));
     free(tm_region);
 }
 
@@ -299,10 +297,10 @@ bool tm_read(shared_t shared, tx_t tx, void const* source, size_t size, void* ta
 
         ls=&(seg->locks[i+offset]);
         prev_locked=atomic_load(&(ls->locked));
-        if (prev_locked){
-            abort_tr(tr);
-            return false;
-        }
+        // if (prev_locked){
+        //     abort_tr(tr);
+        //     return false;
+        // }
         prev_versionStamp=ls->versionStamp;
         if (prev_versionStamp>tr->rv){
             abort_tr(tr);
@@ -323,7 +321,6 @@ bool tm_read(shared_t shared, tx_t tx, void const* source, size_t size, void* ta
             rSet* newRCell= (rSet*) malloc(sizeof(rSet));
             newRCell->ls=ls;
             newRCell->next=tr->rSet;
-            newRCell->old_version=prev_versionStamp;
             tr->rSet=newRCell;
         }
     }
@@ -461,7 +458,7 @@ alloc_t tm_alloc(shared_t shared, tx_t tx, size_t size, void** target) {
  * @return Whether the whole transaction can continue
 **/
 bool tm_free(shared_t shared, tx_t tx, void* target) {
-    if(DEBUG){
+    if(DEBUG>1){
     	printf("TX: %03lx, Free: %p\n", tx, target);
     }
     region* tm_region = (region*) shared;

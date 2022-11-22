@@ -28,7 +28,6 @@ typedef struct wSet{
 // Linked lists to track read operations
 typedef struct rSet{
     lockStamp* ls;
-    int old_version;
     struct rSet* next;
 } rSet;
 
@@ -60,9 +59,6 @@ typedef struct region{
     segment_list allocs;    // Shared memory segments dynamically allocated via tm_alloc within transactions, ordered by growing raw data (first) address
     size_t align;           // Size of a word in the shared memory region (in bytes)
     atomic_int clock;       // Global clock used for time-stamping, perfectible ?
-
-    pthread_mutex_t debug_lock; // debug coarse lock
-    pthread_mutex_t segment_list_lock;
  } region;
 
 

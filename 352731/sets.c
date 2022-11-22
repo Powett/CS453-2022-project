@@ -102,9 +102,9 @@ bool rSet_check(rSet* set, int wv, int rv){
     if (wv!=rv+1){
         while (set){
             rSet* tail=set->next;
-            if (atomic_load(&(set->ls->locked)) || set->ls->versionStamp > rv || set->ls->versionStamp>set->old_version){
+            if (atomic_load(&(set->ls->locked)) || set->ls->versionStamp > rv){
                if (DEBUG>1){
-                   printf("Failed rSet check on lock %p, locked: %d, vStamp/oldVstamp/rv : %d/%d/%d\n", set->ls, set->ls->locked, set->ls->versionStamp, set->old_version,rv);
+                   printf("Failed rSet check on lock %p, locked: %d, vStamp/rv : %d/%d\n", set->ls, set->ls->locked, set->ls->versionStamp,rv);
                }
                 return false;
             }
