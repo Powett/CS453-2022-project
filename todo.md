@@ -1,9 +1,9 @@
 # Général
 - Optimize
-  - Clock ?
-  - cleanup à la fin
-  - voir si vraiment besoin lock pour seg list ?
-  - fixer segfault pour grosses valeurs
+  - read after free
+  - valgrind: qq leaks (wSet racine ?)
+  - passer segments en treeset ?
+  - trouver autre opti ???
 - 
 
 
