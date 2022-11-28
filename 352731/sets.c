@@ -21,11 +21,12 @@ void clear_wSet(wSet* set){
 segment* find_segment(shared_t shared, word* target){
     region* tm_region=(region* ) shared;
     segment* segment=tm_region->allocs;
+    size_t al=tm_region->align;
     while (segment && segment->raw_data<=target){
-        if ((segment->raw_data+(segment->len)*tm_region->align)>=target){
-       if (DEBUG>2){
-           printf("Checking bounds to find seg(%p): [%p - %p]\n", target, segment->raw_data, segment->raw_data+(segment->len)*tm_region->align);
-       }
+        if ((segment->raw_data+(segment->len)*al)>=target){
+            // if (DEBUG>2){
+            //     printf("Checking bounds to find seg(%p): [%p - %p]\n", target, segment->raw_data, segment->raw_data+(segment->len)*tm_region->align);
+            // }
             return segment;
         }
         segment=segment->next;
@@ -56,9 +57,9 @@ bool rSet_check(rSet* set, int wv, int rv){
         while (set){
             rSet* tail=set->next;
             if (test_lockstamp(set->ls) || set->ls->versionStamp > rv){
-               if (DEBUG>1){
-                   printf("Failed rSet check on lock %p, locked: %d, vStamp/rv : %d/%d\n", set->ls, set->ls->locked, set->ls->versionStamp,rv);
-               }
+                // if (DEBUG>1){
+                //     printf("Failed rSet check on lock %p, locked: %d, vStamp/rv : %d/%d\n", set->ls, set->ls->locked, set->ls->versionStamp,rv);
+                // }
                 return false;
             }
             free(set);
@@ -100,6 +101,10 @@ wSet* wSet_insert(wSet* node, word* addr, wSet* parent){
         return node;
     }
     wSet* side=NULL;
+    if (addr==parent->dest){
+        printf("ERROR! Trying to insert an existing cell!");
+        return NULL;
+    }
     if (addr > parent->dest){
         if (!parent->right){
             parent->right=node;
@@ -154,31 +159,11 @@ void wSet_commit_release(region* tm_region, wSet* set, int wv){
     if (!set){
         return;
     }
-    // if (likely(!set->isFreed)){
     memcpy(set->dest, set->src, tm_region->align);
     if (wv!=-1){
         set->ls->versionStamp=wv;
     }
     release_lockstamp(set->ls);
-    // }else if (set->segToFree){
-    //     segment* seg = set->segToFree;
-    //     segment* prev=tm_region->allocs;
-    //     if (prev==seg){
-    //         tm_region->allocs=seg->next;
-    //     }else{
-    //         while (prev && prev->next!=seg){
-    //             prev=prev->next;
-    //         }
-    //         if (!prev){
-    //             printf("Fatal error: could not free cell: possible double free?\n");
-    //             return;
-    //         }
-    //         prev->next=seg->next;
-    //     }
-    //     free(seg->locks);
-    //     free(seg->raw_data);
-    //     free(seg);
-    // }
     wSet_commit_release(tm_region,set->left,wv);
     wSet_commit_release(tm_region,set->right,wv);
     free(set->src);

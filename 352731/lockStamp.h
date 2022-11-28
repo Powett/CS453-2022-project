@@ -7,14 +7,12 @@
 #include "tm.h"
 
 typedef struct lockStamp{
-    pthread_mutex_t mutex;
     int versionStamp;
     atomic_bool locked;
 }lockStamp;
 
 
 bool init_lockstamp(lockStamp* ls, int version);
-
 bool take_lockstamp(lockStamp* ls);
 bool release_lockstamp(lockStamp* ls);
 bool test_lockstamp(lockStamp* ls);

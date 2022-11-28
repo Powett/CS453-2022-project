@@ -7,6 +7,7 @@ EXT_CXX  := C cc cpp cxx c++
 
 INCLUDE_DIR := ../include
 SOURCE_DIR  := .
+ZIP := ../352731.zip
 
 WILD_EXT  = $(strip $(foreach EXT,$($(1)),$(wildcard $(2)/*.$(EXT))))
 
@@ -28,7 +29,7 @@ LDLIBS   :=
 
 build: $(BIN)
 clean:
-	$(RM) $(OBJS) $(BIN)
+	$(RM) -rf $(OBJS) $(BIN) $(ZIP)
 
 define BUILD_C
 %.$(1).o: %.$(1) $$(HDRS_C) Makefile
@@ -44,3 +45,7 @@ $(foreach EXT,$(EXT_CXX),$(eval $(call BUILD_CXX,$(EXT))))
 
 $(BIN): $(OBJS) Makefile
 	$(LD) $(LDFLAGS) -o $@ $(OBJS) $(LDLIBS)
+zip:
+	cd ../
+	zip -r 35273.zip 352731
+	cd 352731/

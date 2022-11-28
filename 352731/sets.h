@@ -19,8 +19,6 @@ typedef struct wSet{
     void* src;
     word* dest;
     lockStamp* ls;
-    // bool isFreed;
-    // struct segment* segToFree;
     struct wSet* left;
     struct wSet* right;
 } wSet;
@@ -55,7 +53,7 @@ typedef segment* segment_list;
  * @brief Transactional Memory Region
  */
 typedef struct region{
-    segment* segment_start; // First allocated segment (non-deallocatable) (may not be the first in the allocs list)
+    struct segment* segment_start; // First allocated segment (non-deallocatable) (may not be the first in the allocs list)
     segment_list allocs;    // Shared memory segments dynamically allocated via tm_alloc within transactions, ordered by growing raw data (first) address
     size_t align;           // Size of a word in the shared memory region (in bytes)
     atomic_int clock;       // Global clock used for time-stamping, perfectible ?
@@ -70,8 +68,6 @@ void clear_wSet(wSet* set);
 
 wSet* wSet_contains(word* addr, wSet* set);
 wSet* wSet_insert(wSet* node, word* addr, wSet* parent);
-
-void wSet_free(wSet* root);
 
 bool wSet_acquire_locks(wSet* set);
 void wSet_release_locks(wSet* root, int wv_to_write);
