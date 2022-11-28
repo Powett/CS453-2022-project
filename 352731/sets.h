@@ -19,8 +19,8 @@ typedef struct wSet{
     void* src;
     word* dest;
     lockStamp* ls;
-    bool isFreed;
-    struct segment* segToFree;
+    // bool isFreed;
+    // struct segment* segToFree;
     struct wSet* left;
     struct wSet* right;
 } wSet;

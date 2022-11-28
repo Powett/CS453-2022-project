@@ -154,31 +154,31 @@ void wSet_commit_release(region* tm_region, wSet* set, int wv){
     if (!set){
         return;
     }
-    if (likely(!set->isFreed)){
-        memcpy(set->dest, set->src, tm_region->align);
-        if (wv!=-1){
-            set->ls->versionStamp=wv;
-        }
-        release_lockstamp(set->ls);
-    }else if (set->segToFree){
-        segment* seg = set->segToFree;
-        segment* prev=tm_region->allocs;
-        if (prev==seg){
-            tm_region->allocs=seg->next;
-        }else{
-            while (prev && prev->next!=seg){
-                prev=prev->next;
-            }
-            if (!prev){
-                printf("Fatal error: could not free cell: possible double free?\n");
-                return;
-            }
-            prev->next=seg->next;
-        }
-        free(seg->locks);
-        free(seg->raw_data);
-        free(seg);
+    // if (likely(!set->isFreed)){
+    memcpy(set->dest, set->src, tm_region->align);
+    if (wv!=-1){
+        set->ls->versionStamp=wv;
     }
+    release_lockstamp(set->ls);
+    // }else if (set->segToFree){
+    //     segment* seg = set->segToFree;
+    //     segment* prev=tm_region->allocs;
+    //     if (prev==seg){
+    //         tm_region->allocs=seg->next;
+    //     }else{
+    //         while (prev && prev->next!=seg){
+    //             prev=prev->next;
+    //         }
+    //         if (!prev){
+    //             printf("Fatal error: could not free cell: possible double free?\n");
+    //             return;
+    //         }
+    //         prev->next=seg->next;
+    //     }
+    //     free(seg->locks);
+    //     free(seg->raw_data);
+    //     free(seg);
+    // }
     wSet_commit_release(tm_region,set->left,wv);
     wSet_commit_release(tm_region,set->right,wv);
     free(set->src);
