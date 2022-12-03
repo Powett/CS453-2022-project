@@ -13,6 +13,7 @@ void clear_wSet(wSet* set){
     if (set){
         clear_wSet(set->left);
         clear_wSet(set->right);
+        clear_wSet(set->free_trick_link);
         free(set->src);
         free(set);
     }
@@ -71,11 +72,14 @@ bool rSet_check(rSet* set, int wv, int rv){
     return true;
 }
 
-void abort_tr(transac* tr){
+void abort_tr(region* reg, transac* tr){
     if (unlikely(!tr)){
         return;
     }
-    clear_wSet(tr->wSet);
+    if (tr->wSet){
+        tr->wSet->free_trick_link=reg->free_trick;
+        reg->free_trick=tr->wSet;
+    }
     clear_rSet(tr->rSet);
     free(tr);
 }
@@ -166,6 +170,6 @@ void wSet_commit_release(region* tm_region, wSet* set, int wv){
     release_lockstamp(set->ls);
     wSet_commit_release(tm_region,set->left,wv);
     wSet_commit_release(tm_region,set->right,wv);
-    free(set->src);
-    free(set);
+    // free(set->src);
+    // free(set);
 }

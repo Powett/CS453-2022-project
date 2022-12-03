@@ -29,7 +29,7 @@ LDLIBS   :=
 
 build: $(BIN)
 clean:
-	$(RM) -rf $(OBJS) $(BIN) $(ZIP)
+	$(RM) $(OBJS) $(BIN) $(ZIP)
 
 define BUILD_C
 %.$(1).o: %.$(1) $$(HDRS_C) Makefile
@@ -46,6 +46,4 @@ $(foreach EXT,$(EXT_CXX),$(eval $(call BUILD_CXX,$(EXT))))
 $(BIN): $(OBJS) Makefile
 	$(LD) $(LDFLAGS) -o $@ $(OBJS) $(LDLIBS)
 zip:
-	cd ../
-	zip -r 35273.zip 352731
-	cd 352731/
+	cd ../;zip -r 352731.zip 352731;cd 352731/

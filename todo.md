@@ -1,10 +1,6 @@
 # Général
-- Optimize
-  - read after free
-  - valgrind: qq leaks (wSet racine ?)
-  - passer segments en treeset ?
-  - trouver autre opti ???
-- 
+- Trouver comment gérer les wSet en destroy (pb de concurrency si region->trick)
+  Sinon, rollback (et forcer submit) 
 
 
 Usage des lockstamp:
