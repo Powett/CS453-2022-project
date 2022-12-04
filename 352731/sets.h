@@ -21,7 +21,6 @@ typedef struct wSet{
     lockStamp* ls;
     struct wSet* left;
     struct wSet* right;
-    struct wSet* free_trick_link;
     
 } wSet;
 
@@ -59,8 +58,6 @@ typedef struct region{
     segment_list allocs;    // Shared memory segments dynamically allocated via tm_alloc within transactions, ordered by growing raw data (first) address
     size_t align;           // Size of a word in the shared memory region (in bytes)
     atomic_int clock;       // Global clock used for time-stamping, perfectible ?
-    wSet* free_trick;
-    pthread_mutex_t trick_lock;
  } region;
 
 
@@ -74,10 +71,9 @@ wSet* wSet_contains(word* addr, wSet* set);
 wSet* wSet_insert(wSet* node, word* addr, wSet* parent);
 
 bool wSet_acquire_locks(wSet* set);
-void wSet_release_locks(wSet* root, int wv_to_write);
+void wSet_abandon_locks_free(wSet* root);
 
 bool rSet_check(rSet* set, int wv, int rv);
-void wSet_commit_release(region* tm_region, wSet* set, int wv);
+void wSet_commit_release_free(region* tm_region, wSet* set, int wv);
 
-void abort_tr(region* tm_region, transac* tx);
-void tm_prepend_wSet_trick(region* reg, wSet* set);
+void abort_tr(transac* tx);

@@ -13,7 +13,6 @@ void clear_wSet(wSet* set){
     if (set){
         clear_wSet(set->left);
         clear_wSet(set->right);
-        clear_wSet(set->free_trick_link);
         free(set->src);
         free(set);
     }
@@ -72,13 +71,11 @@ bool rSet_check(rSet* set, int wv, int rv){
     return true;
 }
 
-void abort_tr(region* reg, transac* tr){
+void abort_tr(transac* tr){
     if (unlikely(!tr)){
         return;
     }
-    if (tr->wSet){
-        tm_prepend_wSet_trick(reg, tr->wSet);
-    }
+    clear_wSet(tr->wSet);
     clear_rSet(tr->rSet);
     free(tr);
 }
@@ -139,26 +136,25 @@ bool wSet_acquire_locks(wSet* set){
         return false;
     }
     if (!wSet_acquire_locks(set->right)){
-        wSet_release_locks(set->left, -1);
+        wSet_abandon_locks_free(set->left);
         release_lockstamp(set->ls);
         return false;
     }
     return true;
 }
 
-void wSet_release_locks(wSet* root, int wv_to_write){
+void wSet_abandon_locks_free(wSet* root){
     if (!root){
         return;
     }
-    if (wv_to_write!=-1){
-        root->ls->versionStamp=wv_to_write;
-    }
     release_lockstamp(root->ls);
-    wSet_release_locks(root->left,wv_to_write);
-    wSet_release_locks(root->right,wv_to_write);
+    wSet_abandon_locks_free(root->left);
+    wSet_abandon_locks_free(root->right);
+    free(root->src);
+    free(root);
 }
 
-void wSet_commit_release(region* tm_region, wSet* set, int wv){
+void wSet_commit_release_free(region* tm_region, wSet* set, int wv){
     if (!set){
         return;
     }
@@ -167,15 +163,8 @@ void wSet_commit_release(region* tm_region, wSet* set, int wv){
         set->ls->versionStamp=wv;
     }
     release_lockstamp(set->ls);
-    wSet_commit_release(tm_region,set->left,wv);
-    wSet_commit_release(tm_region,set->right,wv);
+    wSet_commit_release_free(tm_region,set->left,wv);
+    wSet_commit_release_free(tm_region,set->right,wv);
     free(set->src);
     free(set);
-}
-
-void tm_prepend_wSet_trick(region* reg, wSet* set){
-    pthread_mutex_lock(&(reg->trick_lock));
-    set->free_trick_link=reg->free_trick;
-    reg->free_trick=set;
-    pthread_mutex_unlock(&(reg->trick_lock));
 }
