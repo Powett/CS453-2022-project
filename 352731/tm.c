@@ -99,6 +99,7 @@ shared_t tm_create(size_t size, size_t align) {
     tm_region->align       = align;
     tm_region->free_trick  = NULL;
     atomic_init(&(tm_region->clock), 0);
+    pthread_mutex_init(&(tm_region->trick_lock), NULL);
     // if(DEBUG){
     // 	printf("Region: %p, Region raw data start: %p\n", tm_region, tm_region->segment_start->raw_data);
     // }
@@ -121,6 +122,7 @@ void tm_destroy(shared_t shared) {
         tm_region->allocs = tail;
     }
     clear_wSet(tm_region->free_trick);
+    pthread_mutex_destroy(&(tm_region->trick_lock));
     free(tm_region);
 }
 
@@ -230,7 +232,7 @@ bool tm_end(shared_t shared, tx_t tx) {
         //     printf("Commit succeeded, releasing locks, writing wv:%d\n", tr->wv);
         // }
     }
-    free(tr);
+    abort_tr(tm_region, tr);
     // if(DEBUG>1){
     // 	printf("[OK]= End TX: %03lx\n", tx);
     // }
@@ -424,6 +426,7 @@ alloc_t tm_alloc(shared_t shared, tx_t tx, size_t size, void** target) {
             return abort_alloc;
         }
     }
+    pthread_mutex_init(&(tm_region->trick_lock), NULL);
     // if(DEBUG>1){
     // 	printf("[OK] TX: %03lx, Alloc: size %ld, @%p, raw data: [%p,%p]\n", tx, size, *target, newSeg->raw_data, newSeg->raw_data+size);
     // }

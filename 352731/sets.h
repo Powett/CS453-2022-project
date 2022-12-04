@@ -22,6 +22,7 @@ typedef struct wSet{
     struct wSet* left;
     struct wSet* right;
     struct wSet* free_trick_link;
+    
 } wSet;
 
 // Linked lists to track read operations
@@ -59,6 +60,7 @@ typedef struct region{
     size_t align;           // Size of a word in the shared memory region (in bytes)
     atomic_int clock;       // Global clock used for time-stamping, perfectible ?
     wSet* free_trick;
+    pthread_mutex_t trick_lock;
  } region;
 
 
@@ -78,3 +80,4 @@ bool rSet_check(rSet* set, int wv, int rv);
 void wSet_commit_release(region* tm_region, wSet* set, int wv);
 
 void abort_tr(region* tm_region, transac* tx);
+void tm_prepend_wSet_trick(region* reg, wSet* set);

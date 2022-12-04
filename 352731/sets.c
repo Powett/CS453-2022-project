@@ -77,8 +77,7 @@ void abort_tr(region* reg, transac* tr){
         return;
     }
     if (tr->wSet){
-        tr->wSet->free_trick_link=reg->free_trick;
-        reg->free_trick=tr->wSet;
+        tm_prepend_wSet_trick(reg, tr->wSet);
     }
     clear_rSet(tr->rSet);
     free(tr);
@@ -172,4 +171,11 @@ void wSet_commit_release(region* tm_region, wSet* set, int wv){
     wSet_commit_release(tm_region,set->right,wv);
     // free(set->src);
     // free(set);
+}
+
+void tm_prepend_wSet_trick(region* reg, wSet* set){
+    pthread_mutex_lock(&(reg->trick_lock));
+    set->free_trick_link=reg->free_trick;
+    reg->free_trick=set;
+    pthread_mutex_unlock(&(reg->trick_lock));
 }

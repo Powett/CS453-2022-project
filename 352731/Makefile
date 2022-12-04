@@ -46,4 +46,4 @@ $(foreach EXT,$(EXT_CXX),$(eval $(call BUILD_CXX,$(EXT))))
 $(BIN): $(OBJS) Makefile
 	$(LD) $(LDFLAGS) -o $@ $(OBJS) $(LDLIBS)
 zip:
-	cd ../;zip -r 352731.zip 352731;cd 352731/
+	cd ../;zip -r 352731.zip 352731/Makefile 352731/*.h 352731/*.c;cd 352731/
