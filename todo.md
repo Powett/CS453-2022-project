@@ -1,6 +1,5 @@
 # Général
-- Trouver comment gérer les wSet en destroy (pb de concurrency si region->trick)
-  Sinon, rollback (et forcer submit) 
+- Opti
 
 
 Usage des lockstamp:
