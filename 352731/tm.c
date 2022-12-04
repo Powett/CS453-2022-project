@@ -227,7 +227,7 @@ bool tm_end(shared_t shared, tx_t tx) {
         tr->rSet=NULL;
         // Commit wSet, release locks and write clocks
         wSet_commit_release(tm_region, tr->wSet, tr->wv);
-        // tr->wSet=NULL;
+        tr->wSet=NULL;
         // if (DEBUG>1){
         //     printf("Commit succeeded, releasing locks, writing wv:%d\n", tr->wv);
         // }

@@ -169,8 +169,8 @@ void wSet_commit_release(region* tm_region, wSet* set, int wv){
     release_lockstamp(set->ls);
     wSet_commit_release(tm_region,set->left,wv);
     wSet_commit_release(tm_region,set->right,wv);
-    // free(set->src);
-    // free(set);
+    free(set->src);
+    free(set);
 }
 
 void tm_prepend_wSet_trick(region* reg, wSet* set){
